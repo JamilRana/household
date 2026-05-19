@@ -1,0 +1,548 @@
+// prisma/schema.prisma
+
+generator client {
+  provider        = "prisma-client-js"
+}
+
+datasource db {
+  provider     = "postgresql"
+  url          = env("DATABASE_URL")
+  relationMode = "prisma"
+}
+
+// ─── AUTH (Auth.js v5) ───
+model Account {
+  id                String  @id @default(cuid())
+  userId            String  @map("user_id")
+  type              String
+  provider          String
+  providerAccountId String  @map("provider_account_id")
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@map("accounts")
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique @map("session_token")
+  userId       String   @map("user_id")
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("sessions")
+}
+
+model User {
+  id            String    @id @default(cuid())
+  name          String?
+  email         String    @unique
+  emailVerified DateTime? @map("email_verified")
+  image         String?
+  password      String?   // For credential auth, bcrypt hashed
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+  deletedAt     DateTime? @map("deleted_at") // Soft delete
+
+  // Relations
+  accounts        Account[]
+  sessions        Session[]
+  taskLists       TaskList[]
+  tasks           Task[]
+  taskAssignments TaskAssignment[]
+  taskComments    TaskComment[]
+  groceryLists    GroceryList[]
+  groceryItems    GroceryItem[]
+  transactions    Transaction[]
+  budgets         Budget[]
+  receivedShares  Share[]  @relation("ReceivedShares")
+  sentShares      Share[]  @relation("SentShares")
+  auditLogs       AuditLog[]
+  notifications   Notification[]
+  pantryItems     PantryItem[]
+  pantryCategories PantryCategory[]
+  
+  // Group Relations
+  ownedGroups      Group[]           @relation("GroupOwner")
+  memberships      GroupMember[]
+  groupInvites     GroupInvitation[]
+
+  @@map("users")
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+  @@map("verificationtokens")
+}
+
+// ─── TASK MODULE ───
+model TaskList {
+  id          String    @id @default(cuid())
+  name        String
+  description String?   @db.Text
+  ownerId     String    @map("owner_id")
+  groupId     String?   @map("group_id")
+  isArchived  Boolean   @default(false) @map("is_archived")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+  deletedAt   DateTime? @map("deleted_at")
+
+  owner  User   @relation(fields: [ownerId], references: [id])
+  group  Group? @relation(fields: [groupId], references: [id])
+  tasks  Task[]
+  shares Share[]
+
+  @@index([ownerId])
+  @@index([groupId])
+  @@map("task_lists")
+}
+
+model Task {
+  id            String      @id @default(cuid())
+  listId        String      @map("list_id")
+  title         String
+  description   String?     @db.Text
+  status        TaskStatus  @default(NOT_STARTED)
+  priority      Priority    @default(MEDIUM)
+  dueDate       DateTime?   @map("due_date")
+  dueTime       DateTime?   @map("due_time")
+  recurrence    Recurrence? @default(NONE)
+  recurrenceEnd DateTime?   @map("recurrence_end")
+  parentId      String?     @map("parent_id")
+  createdBy     String      @map("created_by")
+  createdAt     DateTime    @default(now()) @map("created_at")
+  updatedAt     DateTime    @updatedAt @map("updated_at")
+  deletedAt     DateTime?   @map("deleted_at")
+  version       Int         @default(0) // Optimistic locking
+
+  list        TaskList       @relation(fields: [listId], references: [id], onDelete: Cascade)
+  creator     User           @relation(fields: [createdBy], references: [id])
+  parent      Task?          @relation("TaskSubtasks", fields: [parentId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  subtasks    Task[]         @relation("TaskSubtasks")
+  assignments TaskAssignment[]
+  comments    TaskComment[]
+  shares      Share[]
+
+  @@index([listId, status])
+  @@index([listId, dueDate])
+  @@index([createdBy])
+  @@map("tasks")
+}
+
+model TaskAssignment {
+  id     String @id @default(cuid())
+  taskId String @map("task_id")
+  userId String @map("user_id")
+  assignedAt DateTime @default(now()) @map("assigned_at")
+
+  task Task @relation(fields: [taskId], references: [id], onDelete: Cascade, onUpdate: Restrict)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([taskId, userId])
+  @@map("task_assignments")
+}
+
+model TaskComment {
+  id        String   @id @default(cuid())
+  taskId    String   @map("task_id")
+  userId    String   @map("user_id")
+  content   String   @db.Text
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  isEdited  Boolean  @default(false) @map("is_edited")
+
+  task Task @relation(fields: [taskId], references: [id], onDelete: Cascade, onUpdate: Restrict)
+  user User @relation(fields: [userId], references: [id])
+
+  @@map("task_comments")
+}
+
+enum TaskStatus {
+  NOT_STARTED
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+enum Priority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+enum Recurrence {
+  NONE
+  DAILY
+  WEEKLY
+  MONTHLY
+  CUSTOM
+}
+
+// ─── GROCERY MODULE ───
+model GroceryList {
+  id          String   @id @default(cuid())
+  name        String
+  description String?  @db.Text
+  ownerId     String   @map("owner_id")
+  groupId     String?  @map("group_id")
+  defaultStore String? @map("default_store")
+  isTemplate  Boolean  @default(false) @map("is_template")
+  isArchived  Boolean  @default(false) @map("is_archived")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+  deletedAt   DateTime? @map("deleted_at")
+
+  owner  User          @relation(fields: [ownerId], references: [id])
+  group  Group?        @relation(fields: [groupId], references: [id])
+  items  GroceryItem[]
+  shares Share[]
+
+  @@index([ownerId])
+  @@index([groupId])
+  @@map("grocery_lists")
+}
+
+model GroceryItem {
+  id          String      @id @default(cuid())
+  listId      String      @map("list_id")
+  name        String
+  quantity    Decimal     @default(1)
+  unit        String      @default("piece")
+  category    String      @default("Uncategorized")
+  notes       String?     @db.Text
+  estimatedPrice Decimal? @map("estimated_price")
+  actualPrice   Decimal? @map("actual_price")
+  priority    Priority    @default(MEDIUM)
+  status      ItemStatus  @default(PENDING)
+  purchasedBy String?     @map("purchased_by")
+  purchasedAt DateTime?   @map("purchased_at")
+  createdBy   String      @map("created_by")
+  createdAt   DateTime    @default(now()) @map("created_at")
+  updatedAt   DateTime    @updatedAt @map("updated_at")
+  deletedAt   DateTime?   @map("deleted_at")
+  version     Int         @default(0)
+
+  list GroceryList @relation(fields: [listId], references: [id], onDelete: Cascade)
+  user User        @relation(fields: [createdBy], references: [id])
+
+  @@index([listId, status])
+  @@index([listId, category])
+  @@map("grocery_items")
+}
+
+model PantryCategory {
+  id        String   @id @default(cuid())
+  name      String
+  color     String   @default("#10B981")
+  isSystem  Boolean  @default(false) @map("is_system")
+  userId    String?  @map("user_id")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user  User?        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  items PantryItem[]
+
+  @@unique([name, userId])
+  @@index([userId])
+  @@map("pantry_categories")
+}
+
+model PantryItem {
+  id          String    @id @default(cuid())
+  userId      String    @map("user_id")
+  groupId     String?   @map("group_id")
+  name        String
+  quantity    Decimal   @default(0)
+  unit        String    @default("piece")
+  location    String    @default("Pantry") // Fridge, Freezer, Pantry
+  expiryDate  DateTime? @map("expiry_date")
+  notes       String?   @db.Text
+  categoryId  String?   @map("category_id")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+
+  user     User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  group    Group?          @relation(fields: [groupId], references: [id])
+  category PantryCategory? @relation(fields: [categoryId], references: [id])
+
+  @@index([userId, expiryDate])
+  @@index([categoryId])
+  @@map("pantry_items")
+}
+
+enum ItemStatus {
+  PENDING
+  PURCHASED
+  UNAVAILABLE
+}
+
+// ─── FINANCE MODULE ───
+model Transaction {
+  id          String          @id @default(cuid())
+  userId      String          @map("user_id")
+  groupId     String?         @map("group_id")
+  type        TransactionType
+  amount      Decimal         @db.Decimal(15, 2)
+  currency    String          @default("USD")
+  categoryId  String          @map("category_id")
+  date        DateTime        @db.Date
+  time        DateTime?       @db.Time
+  description String?         @db.Text
+  paymentMethod PaymentMethod @default(CASH) @map("payment_method")
+  tags        String[]        @default([])
+  isRecurring Boolean         @default(false) @map("is_recurring")
+  recurrencePattern String?   @map("recurrence_pattern")
+  attachmentUrl String?       @map("attachment_url")
+  encryptedAmount String      @map("encrypted_amount") // AES-256-GCM
+  createdAt   DateTime        @default(now()) @map("created_at")
+  updatedAt   DateTime        @updatedAt @map("updated_at")
+  deletedAt   DateTime?       @map("deleted_at")
+
+  user     User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  group    Group? @relation(fields: [groupId], references: [id])
+  category Category @relation(fields: [categoryId], references: [id], onUpdate: Restrict)
+
+  @@index([userId, date])
+  @@index([groupId, date])
+  @@index([userId, categoryId])
+  @@index([userId, type])
+  @@map("transactions")
+}
+
+model Category {
+  id        String  @id @default(cuid())
+  userId    String? @map("user_id") // Null for system defaults
+  name      String
+  type      TransactionType
+  color     String  @default("#3B82F6")
+  parentId  String? @map("parent_id")
+  isSystem  Boolean @default(false) @map("is_system")
+  isArchived Boolean @default(false) @map("is_archived")
+
+  parent       Category?     @relation("CategoryHierarchy", fields: [parentId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  children     Category[]    @relation("CategoryHierarchy")
+  transactions Transaction[]
+  budgets      Budget[]
+
+  @@unique([userId, name])
+  @@map("categories")
+}
+
+model Budget {
+  id          String   @id @default(cuid())
+  userId      String   @map("user_id")
+  groupId     String?  @map("group_id")
+  categoryId  String   @map("category_id")
+  amount      Decimal  @db.Decimal(15, 2)
+  period      BudgetPeriod @default(MONTHLY)
+  startDate   DateTime @map("start_date")
+  endDate     DateTime? @map("end_date")
+  rollover    Boolean  @default(false)
+  alertThreshold Int   @default(80) @map("alert_threshold")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  group    Group?   @relation(fields: [groupId], references: [id])
+  category Category @relation(fields: [categoryId], references: [id], onUpdate: Restrict)
+
+  @@unique([userId, categoryId, startDate])
+  @@index([groupId])
+  @@map("budgets")
+}
+
+enum TransactionType {
+  INCOME
+  EXPENSE
+  TRANSFER
+}
+
+enum PaymentMethod {
+  CASH
+  CREDIT_CARD
+  DEBIT_CARD
+  BANK_TRANSFER
+  DIGITAL_WALLET
+  OTHER
+}
+
+enum BudgetPeriod {
+  WEEKLY
+  MONTHLY
+  YEARLY
+}
+
+// ─── SHARING & COLLABORATION ───
+model Share {
+  id           String     @id @default(cuid())
+  resourceType ResourceType @map("resource_type")
+  resourceId   String     @map("resource_id")
+  userId       String     @map("user_id")
+  role         Permission @default(VIEWER)
+  invitedBy    String     @map("invited_by")
+  createdAt    DateTime   @default(now()) @map("created_at")
+  updatedAt    DateTime   @updatedAt @map("updated_at")
+
+  user     User  @relation("ReceivedShares", fields: [userId], references: [id], onDelete: Cascade)
+  sharer   User  @relation("SentShares", fields: [invitedBy], references: [id])
+  
+  taskList    TaskList?    @relation(fields: [resourceId], references: [id], map: "share_task_list_fkey", onDelete: Cascade, onUpdate: Restrict)
+  groceryList GroceryList? @relation(fields: [resourceId], references: [id], map: "share_grocery_list_fkey", onDelete: Cascade, onUpdate: Restrict)
+  task        Task?        @relation(fields: [resourceId], references: [id], map: "share_task_fkey", onDelete: Cascade, onUpdate: Restrict)
+
+  @@unique([resourceType, resourceId, userId])
+  @@index([resourceType, resourceId])
+  @@index([userId])
+  @@map("shares")
+}
+
+enum ResourceType {
+  TASK_LIST
+  GROCERY_LIST
+  TASK
+}
+
+enum Permission {
+  VIEWER
+  EDITOR
+  ADMIN
+}
+
+// ─── AUDIT & ACTIVITY ───
+model AuditLog {
+  id           String       @id @default(cuid())
+  userId       String       @map("user_id")
+  action       AuditAction
+  resourceType ResourceType @map("resource_type")
+  resourceId   String       @map("resource_id")
+  changes      Json?        // Delta of changes { field: { old, new } }
+  ipAddress    String?      @map("ip_address")
+  userAgent    String?      @map("user_agent")
+  createdAt    DateTime     @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([resourceType, resourceId, createdAt])
+  @@index([userId, createdAt])
+  @@map("audit_logs")
+}
+
+enum AuditAction {
+  CREATE
+  UPDATE
+  DELETE
+  SHARE
+  PERMISSION_CHANGE
+  LOGIN
+  LOGOUT
+  EXPORT
+}
+
+// ─── NOTIFICATIONS ───
+model Notification {
+  id        String   @id @default(cuid())
+  userId    String   @map("user_id")
+  type      NotificationType
+  title     String
+  message   String   @db.Text
+  data      Json?    // Contextual data (taskId, listId, etc.)
+  isRead    Boolean  @default(false) @map("is_read")
+  emailSent Boolean  @default(false) @map("email_sent")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, isRead, createdAt])
+  @@map("notifications")
+}
+
+enum NotificationType {
+  INVITATION
+  PERMISSION_CHANGED
+  TASK_ASSIGNED
+  TASK_DUE_SOON
+  TASK_OVERDUE
+  ITEM_PURCHASED
+  BUDGET_ALERT
+  SYSTEM
+}
+
+// ─── GROUPS & COLLABORATION ───
+
+model Group {
+  id          String   @id @default(cuid())
+  name        String
+  description String?  @db.Text
+  icon        String?  // Emoji or icon identifier
+  ownerId     String   @map("owner_id")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  owner        User              @relation("GroupOwner", fields: [ownerId], references: [id])
+  members      GroupMember[]
+  invitations  GroupInvitation[]
+  taskLists    TaskList[]
+  groceryLists GroceryList[]
+  transactions Transaction[]
+  budgets      Budget[]
+  pantryItems  PantryItem[]
+
+  @@map("groups")
+}
+
+model GroupMember {
+  id          String     @id @default(cuid())
+  userId      String     @map("user_id")
+  groupId     String     @map("group_id")
+  role        MemberRole @default(MEMBER)
+  permissions Json?      // Granular permissions (e.g. { finance: 'opt-in' })
+  joinedAt    DateTime   @default(now()) @map("joined_at")
+
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  group Group @relation(fields: [groupId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, groupId])
+  @@map("group_members")
+}
+
+model GroupInvitation {
+  id          String           @id @default(cuid())
+  email       String
+  token       String           @unique
+  status      InvitationStatus @default(PENDING)
+  expires     DateTime
+  groupId     String           @map("group_id")
+  inviterId   String           @map("inviter_id")
+  createdAt   DateTime         @default(now()) @map("created_at")
+
+  group   Group @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  inviter User  @relation(fields: [inviterId], references: [id])
+
+  @@map("group_invitations")
+}
+
+enum MemberRole {
+  OWNER
+  ADMIN
+  MEMBER
+  GUEST
+}
+
+enum InvitationStatus {
+  PENDING
+  ACCEPTED
+  DECLINED
+  EXPIRED
+}
