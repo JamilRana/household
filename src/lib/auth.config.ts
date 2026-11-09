@@ -6,6 +6,7 @@ import bcrypt from "bcryptjs";
 
 export default {
   trustHost: true,
+  secret: process.env.AUTH_SECRET || process.env.NEXTAUTH_SECRET,
   providers: [
     Google({
       clientId: process.env.AUTH_GOOGLE_ID,
