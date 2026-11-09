@@ -8,11 +8,22 @@ export default auth((req) => {
   const isLoggedIn = !!req.auth;
 
   const isApiAuthRoute = nextUrl.pathname.startsWith("/api/auth");
-  const isPublicRoute = ["/", "/api/health"].includes(nextUrl.pathname);
+  const isCronRoute = nextUrl.pathname.startsWith("/api/cron");
+  const isHealthRoute = nextUrl.pathname === "/api/health";
   const isAuthRoute = ["/login", "/register"].includes(nextUrl.pathname);
 
-  if (isApiAuthRoute) return;
+  // Allow API auth routes, cron endpoints, and health checks
+  if (isApiAuthRoute || isCronRoute || isHealthRoute) return;
 
+  // Root path: authenticated -> dashboard, unauthenticated -> login
+  if (nextUrl.pathname === "/") {
+    if (isLoggedIn) {
+      return Response.redirect(new URL("/dashboard", nextUrl));
+    }
+    return Response.redirect(new URL("/login", nextUrl));
+  }
+
+  // Already logged in users accessing login/register should go to dashboard
   if (isAuthRoute) {
     if (isLoggedIn) {
       return Response.redirect(new URL("/dashboard", nextUrl));
@@ -20,7 +31,8 @@ export default auth((req) => {
     return;
   }
 
-  if (!isLoggedIn && !isPublicRoute) {
+  // Protected application routes
+  if (!isLoggedIn) {
     return Response.redirect(new URL("/login", nextUrl));
   }
 

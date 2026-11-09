@@ -39,7 +39,7 @@ export function MainNav() {
     <aside className="hidden lg:flex flex-col w-64 border-r bg-background/50 backdrop-blur-xl h-screen py-8 px-6 justify-between shrink-0 sticky top-0 transition-all duration-300">
       <div className="space-y-10 w-full flex flex-col">
         <div className="space-y-8">
-          <Link href="/" className="flex items-center gap-3 px-2 group">
+          <Link href="/dashboard" className="flex items-center gap-3 px-2 group">
             <div className="h-12 w-12 bg-primary rounded-2xl flex items-center justify-center text-primary-foreground font-bold text-2xl shadow-xl shadow-primary/20 group-hover:rotate-6 transition-transform">
               L
             </div>
