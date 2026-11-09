@@ -5,9 +5,10 @@ import { prisma } from "@/lib/db";
 import { getActiveGroupId } from "@/lib/actions/user";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
-import { TransactionType, PaymentMethod, BudgetPeriod } from "@prisma/client";
+import { TransactionType, PaymentMethod, BudgetPeriod, Recurrence } from "@prisma/client";
 import { encrypt, decrypt } from "@/lib/encryption";
 import { startOfMonth, endOfMonth, format } from "date-fns";
+import { requireGroupAccess } from "@/lib/permissions";
 
 // --- Category Actions ---
 
@@ -97,9 +98,9 @@ export async function createTransaction(values: z.infer<typeof CreateTransaction
   if (!session?.user?.id) throw new Error("Unauthorized");
 
   const { amount, ...rest } = values;
-  
-  // Encrypt the amount for storage
-  const encryptedAmount = encrypt(amount.toString());
+
+  // Encrypt the amount for storage bound with GCM AAD to user
+  const encryptedAmount = encrypt(amount.toFixed(2), session.user.id);
 
   const groupId = await getActiveGroupId(session.user.id);
 
@@ -275,78 +276,64 @@ export async function deleteBudget(id: string) {
   revalidatePath("/finance");
 }
 
-export async function processRecurringTransactions() {
-  const recurringTransactions = await prisma.transaction.findMany({
-    where: {
-      isRecurring: true,
-      recurrencePattern: { not: null },
+const CreateRecurringRuleSchema = z.object({
+  type: z.nativeEnum(TransactionType),
+  amount: z.number().positive(),
+  currency: z.string().default("USD"),
+  categoryId: z.string(),
+  description: z.string().optional(),
+  paymentMethod: z.nativeEnum(PaymentMethod).default(PaymentMethod.CASH),
+  frequency: z.nativeEnum(Recurrence),
+  startDate: z.date().default(new Date()),
+  endDate: z.date().optional().nullable(),
+});
+
+export async function createRecurringRule(values: z.infer<typeof CreateRecurringRuleSchema>) {
+  const session = await auth();
+  if (!session?.user?.id) throw new Error("Unauthorized");
+
+  const validated = CreateRecurringRuleSchema.parse(values);
+  const groupId = await getActiveGroupId(session.user.id);
+
+  const rule = await prisma.recurringRule.create({
+    data: {
+      ...validated,
+      userId: session.user.id,
+      groupId,
+      nextRunDate: validated.startDate,
     },
   });
 
-  const now = new Date();
-  let createdCount = 0;
+  revalidatePath("/finance");
+  return rule;
+}
 
-  for (const tx of recurringTransactions) {
-    if (!tx.recurrencePattern) continue;
+export async function getRecurringRules() {
+  const session = await auth();
+  if (!session?.user?.id) return [];
 
-    const lastOccurrence = tx.date;
-    let nextDate = new Date(lastOccurrence);
+  const groupId = await getActiveGroupId(session.user.id);
 
-    if (tx.recurrencePattern === "DAILY") {
-      nextDate.setDate(nextDate.getDate() + 1);
-    } else if (tx.recurrencePattern === "WEEKLY") {
-      nextDate.setDate(nextDate.getDate() + 7);
-    } else if (tx.recurrencePattern === "MONTHLY") {
-      nextDate.setMonth(nextDate.getMonth() + 1);
-    }
+  return await prisma.recurringRule.findMany({
+    where: {
+      OR: [{ userId: session.user.id }, { groupId: groupId || undefined }],
+      isActive: true,
+    },
+    include: { category: true },
+    orderBy: { nextRunDate: "asc" },
+  });
+}
 
-    if (nextDate <= now) {
-      // Duplicate prevention
-      const existing = await prisma.transaction.findFirst({
-        where: {
-          userId: tx.userId,
-          categoryId: tx.categoryId,
-          date: nextDate,
-          amount: tx.amount,
-          type: tx.type,
-        },
-      });
+export async function deleteRecurringRule(id: string) {
+  const session = await auth();
+  if (!session?.user?.id) throw new Error("Unauthorized");
 
-      if (existing) {
-        await prisma.transaction.update({
-          where: { id: tx.id },
-          data: { date: nextDate },
-        });
-        continue;
-      }
+  await prisma.recurringRule.update({
+    where: { id, userId: session.user.id },
+    data: { isActive: false },
+  });
 
-      await prisma.transaction.create({
-        data: {
-          userId: tx.userId,
-          groupId: tx.groupId,
-          type: tx.type,
-          amount: tx.amount,
-          currency: tx.currency,
-          categoryId: tx.categoryId,
-          date: nextDate,
-          description: tx.description,
-          paymentMethod: tx.paymentMethod,
-          isRecurring: true,
-          recurrencePattern: tx.recurrencePattern,
-          encryptedAmount: tx.encryptedAmount,
-        },
-      });
-
-      await prisma.transaction.update({
-        where: { id: tx.id },
-        data: { date: nextDate },
-      });
-      
-      createdCount++;
-    }
-  }
-
-  return { createdCount };
+  revalidatePath("/finance");
 }
 
 export async function getFinanceStats() {

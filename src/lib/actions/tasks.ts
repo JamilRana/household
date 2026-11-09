@@ -6,7 +6,8 @@ import { prisma } from "@/lib/db";
 import { getActiveGroupId } from "@/lib/actions/user";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
-import { TaskStatus, Priority } from "@prisma/client";
+import { TaskStatus, Priority, Recurrence } from "@prisma/client";
+import { requireGroupAccess } from "@/lib/permissions";
 
 // --- Task List Actions ---
 
@@ -128,6 +129,8 @@ const CreateTaskSchema = z.object({
   priority: z.nativeEnum(Priority).default(Priority.MEDIUM),
   dueDate: z.date().optional().nullable(),
   dueTime: z.date().optional().nullable(),
+  recurrence: z.nativeEnum(Recurrence).optional().nullable(),
+  recurrenceEnd: z.date().optional().nullable(),
   assignedUserIds: z.array(z.string()).optional(),
 });
 
@@ -137,20 +140,8 @@ export async function createTask(values: z.infer<typeof CreateTaskSchema>) {
 
   const validatedFields = CreateTaskSchema.parse(values);
 
-  // Security: verify user owns the list or is in the same group
-  const groupId = await getActiveGroupId(session.user.id);
-  const list = await prisma.taskList.findFirst({
-    where: {
-      id: validatedFields.listId,
-      OR: [
-        { ownerId: session.user.id },
-        { groupId: groupId || undefined },
-        { shares: { some: { userId: session.user.id } } },
-      ],
-    },
-  });
-
-  if (!list) throw new Error("Task list not found or access denied");
+  // Security: verify user owns the list or is in the same group with at least MEMBER role
+  await requireGroupAccess("TASK_LIST", validatedFields.listId, session.user.id, "MEMBER");
 
   const task = await prisma.task.create({
     data: {
@@ -160,6 +151,8 @@ export async function createTask(values: z.infer<typeof CreateTaskSchema>) {
       priority: validatedFields.priority,
       dueDate: validatedFields.dueDate,
       dueTime: validatedFields.dueTime,
+      recurrence: validatedFields.recurrence || "NONE",
+      recurrenceEnd: validatedFields.recurrenceEnd,
       createdBy: session.user.id,
       assignments: {
         create: validatedFields.assignedUserIds?.map(userId => ({
@@ -240,7 +233,7 @@ export async function updateTaskStatus(taskId: string, status: TaskStatus) {
   const session = await auth();
   if (!session?.user?.id) throw new Error("Unauthorized");
 
-  // Security: verify ownership via list membership
+  // Security: verify ownership/access via list membership or shares
   const groupId = await getActiveGroupId(session.user.id);
 
   await prisma.task.updateMany({
@@ -256,14 +249,14 @@ export async function updateTaskStatus(taskId: string, status: TaskStatus) {
     data: { status },
   });
 
-  if (status === "COMPLETED") {
-    const task = await prisma.task.findUnique({
-      where: { id: taskId },
-    });
+  const task = await prisma.task.findUnique({
+    where: { id: taskId },
+  });
 
+  if (status === "COMPLETED") {
     if (task?.recurrence && task.recurrence !== "NONE") {
       const nextDueDate = new Date(task.dueDate || new Date());
-      
+
       if (task.recurrence === "DAILY") {
         nextDueDate.setDate(nextDueDate.getDate() + 1);
       } else if (task.recurrence === "WEEKLY") {
@@ -277,7 +270,7 @@ export async function updateTaskStatus(taskId: string, status: TaskStatus) {
         // Fetch current assignments to copy them
         const currentTask = await prisma.task.findUnique({
           where: { id: taskId },
-          include: { assignments: true }
+          include: { assignments: true },
         });
 
         const nextTask = await prisma.task.create({
@@ -298,7 +291,7 @@ export async function updateTaskStatus(taskId: string, status: TaskStatus) {
         // Copy assignments
         if (currentTask?.assignments.length) {
           await prisma.taskAssignment.createMany({
-            data: currentTask.assignments.map(a => ({
+            data: currentTask.assignments.map((a) => ({
               taskId: nextTask.id,
               userId: a.userId,
             })),
@@ -307,12 +300,12 @@ export async function updateTaskStatus(taskId: string, status: TaskStatus) {
       }
     }
 
-    // Notify group members
+    // Notify group members using TASK_COMPLETED
     if (groupId) {
       const members = await prisma.groupMember.findMany({
-        where: { 
+        where: {
           groupId,
-          userId: { not: session.user.id }
+          userId: { not: session.user.id },
         },
       });
 
@@ -320,9 +313,9 @@ export async function updateTaskStatus(taskId: string, status: TaskStatus) {
       for (const member of members) {
         await createNotification(
           member.userId,
-          "TASK_ASSIGNED",
+          "TASK_COMPLETED",
           "Task Completed",
-          `${session.user.name || 'A member'} completed: ${task?.title || 'a task'}`
+          `${session.user.name || "A member"} completed: ${task?.title || "a task"}`
         );
       }
     }
@@ -335,54 +328,12 @@ export async function deleteTask(taskId: string) {
   const session = await auth();
   if (!session?.user?.id) throw new Error("Unauthorized");
 
-  const groupId = await getActiveGroupId(session.user.id);
+  // Verify caller has MEMBER access
+  await requireGroupAccess("TASK", taskId, session.user.id, "MEMBER");
 
-  await prisma.task.deleteMany({
-    where: { 
-      id: taskId,
-      OR: [
-        { createdBy: session.user.id },
-        { list: { ownerId: session.user.id } },
-        { list: { groupId: groupId || undefined } },
-        { list: { shares: { some: { userId: session.user.id } } } },
-      ]
-    },
+  await prisma.task.delete({
+    where: { id: taskId },
   });
 
   revalidatePath("/tasks");
-}
-
-export async function checkOverdueTasks() {
-  const now = new Date();
-  
-  const overdueTasks = await prisma.task.findMany({
-    where: {
-      status: { not: "COMPLETED" },
-      dueDate: { lt: now },
-    },
-    include: {
-      assignments: { include: { user: true } },
-      creator: true,
-      list: true,
-    },
-  });
-
-  const { createNotification } = await import("@/lib/actions/notifications");
-  
-  for (const task of overdueTasks) {
-    const recipients = task.assignments.length > 0 
-      ? task.assignments.map(a => a.userId) 
-      : [task.createdBy];
-
-    for (const userId of recipients) {
-      await createNotification(
-        userId,
-        "TASK_ASSIGNED",
-        "Task Overdue!",
-        `Action Required: "${task.title}" is past its due date.`
-      );
-    }
-  }
-
-  return { notifiedCount: overdueTasks.length };
 }

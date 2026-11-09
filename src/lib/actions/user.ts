@@ -6,6 +6,8 @@ import { revalidatePath } from "next/cache";
 import { cookies } from "next/headers";
 import { z } from "zod";
 import bcrypt from "bcryptjs";
+import { cache } from "react";
+import { ChangePasswordSchema } from "@/lib/validations/auth";
 
 // ─── Profile Actions ───
 
@@ -25,14 +27,11 @@ export async function updateProfile(values: z.infer<typeof UpdateProfileSchema>)
   revalidatePath("/settings");
 }
 
-const ChangePasswordSchema = z.object({
-  currentPassword: z.string().min(1),
-  newPassword: z.string().min(6, "Password must be at least 6 characters"),
-});
-
 export async function changePassword(values: z.infer<typeof ChangePasswordSchema>) {
   const session = await auth();
   if (!session?.user?.id) throw new Error("Unauthorized");
+
+  const validated = ChangePasswordSchema.parse(values);
 
   const user = await prisma.user.findUnique({
     where: { id: session.user.id },
@@ -40,15 +39,28 @@ export async function changePassword(values: z.infer<typeof ChangePasswordSchema
 
   if (!user?.password) throw new Error("No password set for this account");
 
-  const isValid = await bcrypt.compare(values.currentPassword, user.password);
+  const isValid = await bcrypt.compare(validated.currentPassword, user.password);
   if (!isValid) throw new Error("Current password is incorrect");
 
-  const hashed = await bcrypt.hash(values.newPassword, 12);
+  const hashed = await bcrypt.hash(validated.newPassword, 12);
 
-  await prisma.user.update({
-    where: { id: session.user.id },
-    data: { password: hashed },
-  });
+  await prisma.$transaction([
+    prisma.user.update({
+      where: { id: session.user.id },
+      data: {
+        password: hashed,
+        sessionVersion: { increment: 1 }, // Invalidate other active sessions
+      },
+    }),
+    prisma.auditLog.create({
+      data: {
+        userId: session.user.id,
+        action: "PASSWORD_RESET",
+        resourceType: "USER",
+        resourceId: session.user.id,
+      },
+    }),
+  ]);
 
   revalidatePath("/settings");
 }
@@ -90,40 +102,44 @@ export async function getUserProfile() {
 
 // ─── Group Context ───
 
+const resolveActiveGroupId = cache(
+  async (targetUserId: string, cookieGroupId?: string): Promise<string | null> => {
+    if (cookieGroupId) {
+      // Validate that user is still an active member of this group
+      const membership = await prisma.groupMember.findUnique({
+        where: {
+          userId_groupId: {
+            userId: targetUserId,
+            groupId: cookieGroupId,
+          },
+        },
+      });
+
+      if (membership) return cookieGroupId;
+    }
+
+    // Fallback: return first group membership
+    const firstMembership = await prisma.groupMember.findFirst({
+      where: { userId: targetUserId },
+      select: { groupId: true },
+    });
+
+    return firstMembership?.groupId || null;
+  }
+);
+
 /**
  * Returns the user's currently active group ID from the cookie.
- * Falls back to the first group membership if no cookie is set.
- * Returns null if user has no group memberships.
+ * Request-scoped cache avoids redundant database queries across server components and actions.
  */
 export async function getActiveGroupId(userId?: string): Promise<string | null> {
   const targetUserId = userId || (await auth())?.user?.id;
   if (!targetUserId) return null;
 
-  // Read from cookie
   const cookieStore = await cookies();
   const cookieGroupId = cookieStore.get("active_group_id")?.value;
 
-  if (cookieGroupId) {
-    // Validate that user is still a member of this group
-    const membership = await prisma.groupMember.findUnique({
-      where: {
-        userId_groupId: {
-          userId: targetUserId,
-          groupId: cookieGroupId,
-        },
-      },
-    });
-
-    if (membership) return cookieGroupId;
-  }
-
-  // Fallback: return first group membership
-  const firstMembership = await prisma.groupMember.findFirst({
-    where: { userId: targetUserId },
-    select: { groupId: true },
-  });
-
-  return firstMembership?.groupId || null;
+  return resolveActiveGroupId(targetUserId, cookieGroupId);
 }
 
 /**

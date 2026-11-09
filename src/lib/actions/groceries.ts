@@ -6,6 +6,7 @@ import { getActiveGroupId } from "@/lib/actions/user";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { ItemStatus } from "@prisma/client";
+import { requireGroupAccess } from "@/lib/permissions";
 
 function getDynamicLocation(category?: string | null): string {
   const cat = (category || "").toLowerCase();
@@ -325,106 +326,145 @@ export async function finalizeShoppingSession(itemPrices: Record<string, number>
 
   const groupId = await getActiveGroupId(session.user.id);
 
-  // 1. Update all items with their actual prices and status
-  for (const [id, price] of Object.entries(itemPrices)) {
-    await prisma.groceryItem.update({
-      where: { id },
-      data: {
-        actualPrice: price,
-        status: "PURCHASED",
-        purchasedAt: new Date(),
-        purchasedBy: session.user.id,
+  // Execute atomically in a single transaction with idempotency and duplicate pantry merging
+  await prisma.$transaction(async (tx) => {
+    // 1. Fetch pending items
+    const items = await tx.groceryItem.findMany({
+      where: {
+        id: { in: itemIds },
+        status: "PENDING",
       },
+      include: { list: true },
     });
-  }
 
-  // 2. Calculate total for the transaction
-  const calculatedTotal = Object.values(itemPrices).reduce((sum, p) => sum + p, 0);
-  const finalTotal = manualTotal || calculatedTotal;
+    // Idempotency: if already processed or empty, skip duplicate creation
+    if (items.length === 0 && !manualTotal) {
+      return;
+    }
 
-  // Group purchased items by category to make Finance transaction categories completely dynamic!
-  const itemsWithPrices = await prisma.groceryItem.findMany({
-    where: { id: { in: itemIds } },
-  });
+    // 2. Update item prices and mark as PURCHASED
+    for (const item of items) {
+      const price = itemPrices[item.id] ?? (item.estimatedPrice ? Number(item.estimatedPrice) : 0);
+      await tx.groceryItem.update({
+        where: { id: item.id },
+        data: {
+          actualPrice: price,
+          status: "PURCHASED",
+          purchasedAt: new Date(),
+          purchasedBy: session.user!.id!,
+        },
+      });
+    }
 
-  const categoryTotals: Record<string, number> = {};
-  for (const item of itemsWithPrices) {
-    const price = itemPrices[item.id] || 0;
-    const catName = item.category || "Groceries";
-    categoryTotals[catName] = (categoryTotals[catName] || 0) + price;
-  }
+    // 3. Reconcile totals and create finance transactions
+    const calculatedTotal = items.reduce((sum, item) => {
+      const p = itemPrices[item.id] ?? (item.estimatedPrice ? Number(item.estimatedPrice) : 0);
+      return sum + p;
+    }, 0);
 
-  // Create a dynamic transaction for each category total
-  let transactionCreated = false;
-  for (const [catName, total] of Object.entries(categoryTotals)) {
-    if (total > 0) {
-      const financeCategory = await getOrCreateFinanceCategory(session.user.id, catName);
+    const categoryTotals: Record<string, number> = {};
+    for (const item of items) {
+      const p = itemPrices[item.id] ?? (item.estimatedPrice ? Number(item.estimatedPrice) : 0);
+      const cat = item.category || "Groceries";
+      categoryTotals[cat] = (categoryTotals[cat] || 0) + p;
+    }
+
+    // If manualTotal is specified (e.g. store receipt discrepancy, discounts, tax), scale proportionally
+    const scaleFactor = calculatedTotal > 0 && manualTotal ? manualTotal / calculatedTotal : 1;
+
+    let transactionCreated = false;
+    for (const [catName, subtotal] of Object.entries(categoryTotals)) {
+      const adjustedAmount = Math.round(subtotal * scaleFactor * 100) / 100;
+      if (adjustedAmount > 0) {
+        const financeCategory = await getOrCreateFinanceCategory(session.user!.id!, catName);
+        const { encrypt } = await import("@/lib/encryption");
+
+        await tx.transaction.create({
+          data: {
+            userId: session.user!.id!,
+            groupId,
+            type: "EXPENSE",
+            amount: adjustedAmount,
+            currency: "USD",
+            categoryId: financeCategory.id,
+            date: new Date(),
+            description: `Shopping trip (${catName})`,
+            paymentMethod: "CASH",
+            encryptedAmount: encrypt(adjustedAmount.toFixed(2), session.user!.id!),
+          },
+        });
+        transactionCreated = true;
+      }
+    }
+
+    if (!transactionCreated && manualTotal && manualTotal > 0) {
+      const financeCategory = await getOrCreateFinanceCategory(session.user!.id!, "Groceries");
       const { encrypt } = await import("@/lib/encryption");
 
-      await prisma.transaction.create({
+      await tx.transaction.create({
         data: {
-          userId: session.user.id,
+          userId: session.user!.id!,
           groupId,
           type: "EXPENSE",
-          amount: total,
+          amount: manualTotal,
           currency: "USD",
           categoryId: financeCategory.id,
           date: new Date(),
-          description: `Shopping trip (${catName})`,
+          description: `Shopping trip`,
           paymentMethod: "CASH",
-          encryptedAmount: encrypt(total.toString()),
+          encryptedAmount: encrypt(manualTotal.toFixed(2), session.user!.id!),
         },
       });
-      transactionCreated = true;
     }
-  }
 
-  // Fallback to manual total if no categories were processed
-  if (!transactionCreated && finalTotal > 0) {
-    const financeCategory = await getOrCreateFinanceCategory(session.user.id, "Groceries");
-    const { encrypt } = await import("@/lib/encryption");
+    // 4. Pantry Ingestion with Duplicate Stock Merging
+    for (const item of items) {
+      const dynamicLocation = getDynamicLocation(item.category);
+      const expiryDays = getDynamicExpiryDays(item.category);
+      const expiryDate = new Date();
+      expiryDate.setDate(expiryDate.getDate() + expiryDays);
 
-    await prisma.transaction.create({
-      data: {
-        userId: session.user.id,
-        groupId,
-        type: "EXPENSE",
-        amount: finalTotal,
-        currency: "USD",
-        categoryId: financeCategory.id,
-        date: new Date(),
-        description: `Shopping trip`,
-        paymentMethod: "CASH",
-        encryptedAmount: encrypt(finalTotal.toString()),
-      },
-    });
-  }
+      const categoryId = await findPantryCategoryByName(session.user!.id!, item.category);
 
-  // 3. Move items to pantry (Dynamic Location and Expiry)
-  const items = await prisma.groceryItem.findMany({
-    where: { id: { in: itemIds } },
+      // Check if item with matching name, unit, and location exists to merge quantity
+      const existing = await tx.pantryItem.findFirst({
+        where: {
+          name: { equals: item.name, mode: "insensitive" },
+          unit: item.unit,
+          location: dynamicLocation,
+          OR: [
+            { userId: session.user!.id! },
+            { groupId: groupId || undefined },
+          ],
+        },
+      });
+
+      if (existing) {
+        await tx.pantryItem.update({
+          where: { id: existing.id },
+          data: {
+            quantity: { increment: item.quantity },
+            expiryDate: existing.expiryDate && existing.expiryDate > expiryDate
+              ? existing.expiryDate
+              : expiryDate,
+          },
+        });
+      } else {
+        await tx.pantryItem.create({
+          data: {
+            name: item.name,
+            quantity: item.quantity,
+            unit: item.unit,
+            location: dynamicLocation,
+            expiryDate,
+            userId: session.user!.id!,
+            groupId,
+            categoryId,
+          },
+        });
+      }
+    }
   });
-
-  for (const item of items) {
-    const expiryDays = getDynamicExpiryDays(item.category);
-    const expiryDate = new Date();
-    expiryDate.setDate(expiryDate.getDate() + expiryDays);
-    const dynamicLocation = getDynamicLocation(item.category);
-    const categoryId = await findPantryCategoryByName(session.user.id, item.category);
-
-    await prisma.pantryItem.create({
-      data: {
-        name: item.name,
-        quantity: item.quantity,
-        unit: item.unit,
-        location: dynamicLocation,
-        expiryDate,
-        userId: session.user.id,
-        groupId,
-        categoryId,
-      },
-    });
-  }
 
   revalidatePath("/finance");
   revalidatePath("/groceries");

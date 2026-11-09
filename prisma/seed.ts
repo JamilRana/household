@@ -1,4 +1,5 @@
 import { PrismaClient, TransactionType } from "@prisma/client";
+import bcrypt from "bcryptjs";
 
 const prisma = new PrismaClient();
 
@@ -101,6 +102,43 @@ async function main() {
     }
   }
 
+  console.log("Seeding default users with credentials...");
+  const hashedPassword = await bcrypt.hash("Password123!", 12);
+
+  const adminUser = await prisma.user.upsert({
+    where: { email: "admin@lifehub.local" },
+    update: {
+      password: hashedPassword,
+      role: "SUPERADMIN",
+      isActive: true,
+    },
+    create: {
+      email: "admin@lifehub.local",
+      name: "System Administrator",
+      password: hashedPassword,
+      role: "SUPERADMIN",
+      isActive: true,
+    },
+  });
+
+  const demoUser = await prisma.user.upsert({
+    where: { email: "demo@lifehub.local" },
+    update: {
+      password: hashedPassword,
+      role: "USER",
+      isActive: true,
+    },
+    create: {
+      email: "demo@lifehub.local",
+      name: "Demo Household Member",
+      password: hashedPassword,
+      role: "USER",
+      isActive: true,
+    },
+  });
+
+  console.log("Seeded Admin User:", adminUser.email);
+  console.log("Seeded Demo User:", demoUser.email);
   console.log("Seeding completed successfully.");
 }
 

@@ -6,32 +6,29 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import bcrypt from "bcryptjs";
 
-async function checkAdmin() {
+export async function checkAdmin() {
   const session = await auth();
   if (!session?.user?.id) throw new Error("Unauthorized");
 
   const user = await prisma.user.findUnique({
     where: { id: session.user.id },
-    include: { memberships: true }
+    select: { id: true, role: true, isActive: true, deletedAt: true },
   });
 
-  const isAdmin = user?.memberships.some(m => m.role === "OWNER" || m.role === "ADMIN");
-  if (!isAdmin) throw new Error("Admin access required");
-  
-  return session;
+  if (!user || user.deletedAt || !user.isActive) {
+    throw new Error("Account is inactive or disabled");
+  }
+
+  const isAdmin = user.role === "ADMIN" || user.role === "SUPERADMIN";
+  if (!isAdmin) {
+    throw new Error("Superadmin / Admin access required");
+  }
+
+  return { session, user };
 }
 
 export async function getAllUsersAdmin() {
-  const session = await auth();
-  if (!session?.user?.id) throw new Error("Unauthorized");
-
-  const user = await prisma.user.findUnique({
-    where: { id: session.user.id },
-    include: { memberships: true }
-  });
-
-  const isAdmin = user?.memberships.some(m => m.role === "OWNER" || m.role === "ADMIN");
-  if (!isAdmin) throw new Error("Admin access required");
+  await checkAdmin();
 
   return await prisma.user.findMany({
     where: { deletedAt: null },
@@ -40,6 +37,8 @@ export async function getAllUsersAdmin() {
       name: true,
       email: true,
       image: true,
+      role: true,
+      isActive: true,
       createdAt: true,
       _count: {
         select: {
@@ -56,16 +55,7 @@ export async function getAllUsersAdmin() {
 }
 
 export async function getUserStats(userId: string) {
-  const session = await auth();
-  if (!session?.user?.id) throw new Error("Unauthorized");
-
-  const user = await prisma.user.findUnique({
-    where: { id: session.user.id },
-    include: { memberships: true }
-  });
-
-  const isAdmin = user?.memberships.some(m => m.role === "OWNER" || m.role === "ADMIN");
-  if (!isAdmin) throw new Error("Admin access required");
+  await checkAdmin();
 
   const [taskCount, groceryCount, transactionCount, groupMemberships, recentActivity] = await Promise.all([
     prisma.task.count({ where: { createdBy: userId } }),
@@ -76,7 +66,7 @@ export async function getUserStats(userId: string) {
       where: { createdBy: userId },
       orderBy: { createdAt: "desc" },
       take: 5,
-      select: { id: true, title: true, status: true, createdAt: true }
+      select: { id: true, title: true, status: true, createdAt: true },
     }),
   ]);
 
@@ -90,16 +80,7 @@ export async function getUserStats(userId: string) {
 }
 
 export async function searchUsers(query: string) {
-  const session = await auth();
-  if (!session?.user?.id) throw new Error("Unauthorized");
-
-  const user = await prisma.user.findUnique({
-    where: { id: session.user.id },
-    include: { memberships: true }
-  });
-
-  const isAdmin = user?.memberships.some(m => m.role === "OWNER" || m.role === "ADMIN");
-  if (!isAdmin) throw new Error("Admin access required");
+  await checkAdmin();
 
   return await prisma.user.findMany({
     where: {
@@ -114,74 +95,103 @@ export async function searchUsers(query: string) {
       name: true,
       email: true,
       image: true,
+      role: true,
     },
     take: 10,
   });
 }
 
 export async function getUserGroupsAdmin(userId: string) {
-  const session = await auth();
-  if (!session?.user?.id) throw new Error("Unauthorized");
-
-  const currentUser = await prisma.user.findUnique({
-    where: { id: session.user.id },
-    include: { memberships: true }
-  });
-
-  const isAdmin = currentUser?.memberships.some(m => m.role === "OWNER" || m.role === "ADMIN");
-  if (!isAdmin) throw new Error("Admin access required");
+  await checkAdmin();
 
   return await prisma.groupMember.findMany({
     where: { userId },
     include: {
       group: {
-        select: { id: true, name: true, icon: true }
-      }
+        select: { id: true, name: true, icon: true },
+      },
     },
     orderBy: { joinedAt: "desc" },
   });
 }
 
 const DeactivateUserSchema = z.object({
-  userId: z.string(),
+  userId: z.string().min(1),
   reason: z.string().optional(),
 });
 
 export async function deactivateUser(values: z.infer<typeof DeactivateUserSchema>) {
-  const session = await auth();
-  if (!session?.user?.id) throw new Error("Unauthorized");
+  const { session } = await checkAdmin();
+  const validated = DeactivateUserSchema.parse(values);
 
-  const currentUser = await prisma.user.findUnique({
-    where: { id: session.user.id },
-    include: { memberships: true }
-  });
+  if (session.user?.id === validated.userId) {
+    throw new Error("Cannot deactivate your own account");
+  }
 
-  const isAdmin = currentUser?.memberships.some(m => m.role === "OWNER" || m.role === "ADMIN");
-  if (!isAdmin) throw new Error("Admin access required");
-
-  await prisma.user.update({
-    where: { id: values.userId },
-    data: { deletedAt: new Date() },
-  });
+  await prisma.$transaction([
+    prisma.user.update({
+      where: { id: validated.userId },
+      data: {
+        deletedAt: new Date(),
+        isActive: false,
+        sessionVersion: { increment: 1 },
+      },
+    }),
+    prisma.auditLog.create({
+      data: {
+        userId: session.user!.id!,
+        action: "DEACTIVATE_USER",
+        resourceType: "USER",
+        resourceId: validated.userId,
+        changes: { reason: validated.reason || "Administrative deactivation" },
+      },
+    }),
+  ]);
 
   revalidatePath("/admin/users");
 }
 
-// ─── User CRUD Operations ───
+export async function reactivateUser(userId: string) {
+  const { session } = await checkAdmin();
+
+  await prisma.$transaction([
+    prisma.user.update({
+      where: { id: userId },
+      data: {
+        deletedAt: null,
+        isActive: true,
+        sessionVersion: { increment: 1 },
+      },
+    }),
+    prisma.auditLog.create({
+      data: {
+        userId: session.user!.id!,
+        action: "REACTIVATE_USER",
+        resourceType: "USER",
+        resourceId: userId,
+      },
+    }),
+  ]);
+
+  revalidatePath("/admin/users");
+}
 
 const CreateUserSchema = z.object({
   email: z.string().email("Invalid email"),
   name: z.string().min(1, "Name is required"),
-  password: z.string().min(6, "Password must be at least 6 characters"),
+  password: z
+    .string()
+    .min(10, "Password must be at least 10 characters")
+    .max(72, "Password cannot exceed 72 bytes"),
+  role: z.enum(["USER", "ADMIN", "SUPERADMIN"]).optional().default("USER"),
 });
 
-export async function createUser(values: z.infer<typeof CreateUserSchema>) {
-  await checkAdmin();
-
+export async function createUser(values: z.input<typeof CreateUserSchema>) {
+  const { session } = await checkAdmin();
   const validated = CreateUserSchema.parse(values);
 
   const existing = await prisma.user.findUnique({
-    where: { email: validated.email.toLowerCase() }
+    where: { email: validated.email.toLowerCase() },
   });
 
   if (existing) {
@@ -195,41 +205,63 @@ export async function createUser(values: z.infer<typeof CreateUserSchema>) {
       email: validated.email.toLowerCase(),
       name: validated.name,
       password: hashedPassword,
+      role: validated.role,
+    },
+  });
+
+  await prisma.auditLog.create({
+    data: {
+      userId: session.user!.id!,
+      action: "CREATE",
+      resourceType: "USER",
+      resourceId: user.id,
+      changes: { email: user.email, name: user.name, role: user.role },
     },
   });
 
   revalidatePath("/admin/users");
-  return { id: user.id, email: user.email, name: user.name };
+  return { id: user.id, email: user.email, name: user.name, role: user.role };
 }
 
 const UpdateUserSchema = z.object({
   userId: z.string(),
   name: z.string().min(1, "Name is required").optional(),
   email: z.string().email("Invalid email").optional(),
+  role: z.enum(["USER", "ADMIN", "SUPERADMIN"]).optional(),
 });
 
 export async function updateUser(values: z.infer<typeof UpdateUserSchema>) {
-  await checkAdmin();
-
+  const { session } = await checkAdmin();
   const validated = UpdateUserSchema.parse(values);
 
   if (validated.email) {
     const existing = await prisma.user.findFirst({
       where: {
         email: validated.email.toLowerCase(),
-        id: { not: validated.userId }
-      }
+        id: { not: validated.userId },
+      },
     });
     if (existing) {
       throw new Error("Email already in use");
     }
   }
 
-  await prisma.user.update({
+  const updated = await prisma.user.update({
     where: { id: validated.userId },
     data: {
       ...(validated.name && { name: validated.name }),
       ...(validated.email && { email: validated.email.toLowerCase() }),
+      ...(validated.role && { role: validated.role }),
+    },
+  });
+
+  await prisma.auditLog.create({
+    data: {
+      userId: session.user!.id!,
+      action: "UPDATE",
+      resourceType: "USER",
+      resourceId: updated.id,
+      changes: validated,
     },
   });
 
@@ -237,43 +269,66 @@ export async function updateUser(values: z.infer<typeof UpdateUserSchema>) {
 }
 
 export async function resetUserPassword(userId: string, newPassword: string) {
-  await checkAdmin();
+  const { session } = await checkAdmin();
 
-  if (newPassword.length < 6) {
-    throw new Error("Password must be at least 6 characters");
+  if (newPassword.length < 10 || newPassword.length > 72) {
+    throw new Error("Password must be between 10 and 72 characters");
   }
 
   const hashed = await bcrypt.hash(newPassword, 12);
 
-  await prisma.user.update({
-    where: { id: userId },
-    data: { password: hashed },
-  });
+  await prisma.$transaction([
+    prisma.user.update({
+      where: { id: userId },
+      data: {
+        password: hashed,
+        sessionVersion: { increment: 1 },
+      },
+    }),
+    prisma.auditLog.create({
+      data: {
+        userId: session.user!.id!,
+        action: "PASSWORD_RESET",
+        resourceType: "USER",
+        resourceId: userId,
+      },
+    }),
+  ]);
 
   revalidatePath("/admin/users");
 }
 
 export async function deleteUser(userId: string) {
-  const session = await checkAdmin();
+  const { session } = await checkAdmin();
 
   if (session.user?.id === userId) {
-    throw new Error("Cannot delete yourself");
+    throw new Error("Cannot delete your own account");
   }
 
-  await prisma.user.delete({
-    where: { id: userId },
-  });
-
-  revalidatePath("/admin/users");
-}
-
-export async function reactivateUser(userId: string) {
-  await checkAdmin();
-
-  await prisma.user.update({
-    where: { id: userId },
-    data: { deletedAt: null },
-  });
+  // relationMode="prisma" manual cascade cleanup
+  await prisma.$transaction([
+    prisma.auditLog.create({
+      data: {
+        userId: session.user!.id!,
+        action: "DELETE",
+        resourceType: "USER",
+        resourceId: userId,
+      },
+    }),
+    prisma.taskAssignment.deleteMany({ where: { userId } }),
+    prisma.taskComment.deleteMany({ where: { userId } }),
+    prisma.share.deleteMany({ where: { OR: [{ userId }, { invitedBy: userId }] } }),
+    prisma.notification.deleteMany({ where: { userId } }),
+    prisma.groupMember.deleteMany({ where: { userId } }),
+    prisma.pantryItem.deleteMany({ where: { userId } }),
+    prisma.groceryItem.deleteMany({ where: { createdBy: userId } }),
+    prisma.transaction.deleteMany({ where: { userId } }),
+    prisma.budget.deleteMany({ where: { userId } }),
+    prisma.task.deleteMany({ where: { createdBy: userId } }),
+    prisma.taskList.deleteMany({ where: { ownerId: userId } }),
+    prisma.groceryList.deleteMany({ where: { ownerId: userId } }),
+    prisma.user.delete({ where: { id: userId } }),
+  ]);
 
   revalidatePath("/admin/users");
 }
@@ -288,6 +343,7 @@ export async function getDeactivatedUsers() {
       name: true,
       email: true,
       image: true,
+      role: true,
       deletedAt: true,
     },
     orderBy: { deletedAt: "desc" },

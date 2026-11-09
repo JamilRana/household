@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { createTransaction, processRecurringTransactions, getBudgets } from "./finance";
+import { createTransaction, getBudgets } from "./finance";
+import { processRecurringTransactions } from "@/lib/jobs/recurring-transactions";
 import { prisma } from "@/lib/db";
 import { auth } from "@/lib/auth";
 

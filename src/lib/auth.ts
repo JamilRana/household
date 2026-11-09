@@ -15,14 +15,36 @@ export const {
   adapter: PrismaAdapter(prisma),
   session: { strategy: "jwt" },
   callbacks: {
+    async jwt({ token, user }) {
+      if (user) {
+        token.sub = user.id;
+        token.sessionVersion = (user as any).sessionVersion || 1;
+        token.role = (user as any).role || "USER";
+      }
+
+      if (token.sub) {
+        // Enforce active session and revocation checks
+        const dbUser = await prisma.user.findUnique({
+          where: { id: token.sub },
+          select: { sessionVersion: true, isActive: true, deletedAt: true, role: true },
+        });
+
+        if (!dbUser || !dbUser.isActive || dbUser.deletedAt || dbUser.sessionVersion !== token.sessionVersion) {
+          // Token is revoked: user deactivated or password reset
+          return null as any;
+        }
+
+        token.role = dbUser.role;
+      }
+
+      return token;
+    },
     async session({ token, session }) {
-      if (token.sub && session.user) {
+      if (token?.sub && session.user) {
         session.user.id = token.sub;
+        (session.user as any).role = token.role;
       }
       return session;
-    },
-    async jwt({ token }) {
-      return token;
     },
   },
   providers: [
@@ -33,12 +55,14 @@ export const {
 
         if (validatedFields.success) {
           const { email, password } = validatedFields.data;
-          
+
           const user = await prisma.user.findUnique({
-            where: { email },
+            where: { email: email.toLowerCase() },
           });
 
-          if (!user || !user.password) return null;
+          if (!user || !user.password || !user.isActive || user.deletedAt) {
+            return null;
+          }
 
           const passwordsMatch = await bcrypt.compare(
             password,

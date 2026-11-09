@@ -27,6 +27,7 @@ model Account {
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
+  @@index([userId])
   @@unique([provider, providerAccountId])
   @@map("accounts")
 }
@@ -38,19 +39,23 @@ model Session {
   expires      DateTime
   user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
+  @@index([userId])
   @@map("sessions")
 }
 
 model User {
-  id            String    @id @default(cuid())
+  id            String     @id @default(cuid())
   name          String?
-  email         String    @unique
-  emailVerified DateTime? @map("email_verified")
+  email         String     @unique
+  emailVerified DateTime?  @map("email_verified")
   image         String?
-  password      String?   // For credential auth, bcrypt hashed
-  createdAt     DateTime  @default(now()) @map("created_at")
-  updatedAt     DateTime  @updatedAt @map("updated_at")
-  deletedAt     DateTime? @map("deleted_at") // Soft delete
+  password      String?    // For credential auth, bcrypt hashed
+  role          SystemRole @default(USER)
+  sessionVersion Int       @default(1) @map("session_version")
+  isActive      Boolean    @default(true) @map("is_active")
+  createdAt     DateTime   @default(now()) @map("created_at")
+  updatedAt     DateTime   @updatedAt @map("updated_at")
+  deletedAt     DateTime?  @map("deleted_at") // Soft delete
 
   // Relations
   accounts        Account[]
@@ -63,6 +68,7 @@ model User {
   groceryItems    GroceryItem[]
   transactions    Transaction[]
   budgets         Budget[]
+  recurringRules  RecurringRule[]
   receivedShares  Share[]  @relation("ReceivedShares")
   sentShares      Share[]  @relation("SentShares")
   auditLogs       AuditLog[]
@@ -76,6 +82,12 @@ model User {
   groupInvites     GroupInvitation[]
 
   @@map("users")
+}
+
+enum SystemRole {
+  USER
+  ADMIN
+  SUPERADMIN
 }
 
 model VerificationToken {
@@ -120,6 +132,7 @@ model Task {
   dueTime       DateTime?   @map("due_time")
   recurrence    Recurrence? @default(NONE)
   recurrenceEnd DateTime?   @map("recurrence_end")
+  overdueNotifiedAt DateTime? @map("overdue_notified_at")
   parentId      String?     @map("parent_id")
   createdBy     String      @map("created_by")
   createdAt     DateTime    @default(now()) @map("created_at")
@@ -151,6 +164,7 @@ model TaskAssignment {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([taskId, userId])
+  @@index([userId])
   @@map("task_assignments")
 }
 
@@ -166,6 +180,8 @@ model TaskComment {
   task Task @relation(fields: [taskId], references: [id], onDelete: Cascade, onUpdate: Restrict)
   user User @relation(fields: [userId], references: [id])
 
+  @@index([taskId])
+  @@index([userId])
   @@map("task_comments")
 }
 
@@ -240,6 +256,7 @@ model GroceryItem {
 
   @@index([listId, status])
   @@index([listId, category])
+  @@index([createdBy])
   @@map("grocery_items")
 }
 
@@ -279,6 +296,7 @@ model PantryItem {
 
   @@index([userId, expiryDate])
   @@index([categoryId])
+  @@index([groupId])
   @@map("pantry_items")
 }
 
@@ -306,19 +324,54 @@ model Transaction {
   recurrencePattern String?   @map("recurrence_pattern")
   attachmentUrl String?       @map("attachment_url")
   encryptedAmount String      @map("encrypted_amount") // AES-256-GCM
+  recurringRuleId String?     @map("recurring_rule_id")
+  occurrenceDate  DateTime?   @map("occurrence_date") @db.Date
   createdAt   DateTime        @default(now()) @map("created_at")
   updatedAt   DateTime        @updatedAt @map("updated_at")
   deletedAt   DateTime?       @map("deleted_at")
 
-  user     User   @relation(fields: [userId], references: [id], onDelete: Cascade)
-  group    Group? @relation(fields: [groupId], references: [id])
-  category Category @relation(fields: [categoryId], references: [id], onUpdate: Restrict)
+  user          User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  group         Group?         @relation(fields: [groupId], references: [id])
+  category      Category       @relation(fields: [categoryId], references: [id], onUpdate: Restrict)
+  recurringRule RecurringRule? @relation(fields: [recurringRuleId], references: [id], onDelete: SetNull)
 
+  @@unique([recurringRuleId, occurrenceDate])
   @@index([userId, date])
   @@index([groupId, date])
   @@index([userId, categoryId])
   @@index([userId, type])
+  @@index([recurringRuleId])
   @@map("transactions")
+}
+
+model RecurringRule {
+  id                String          @id @default(cuid())
+  userId            String          @map("user_id")
+  groupId           String?         @map("group_id")
+  type              TransactionType
+  amount            Decimal         @db.Decimal(15, 2)
+  currency          String          @default("USD")
+  categoryId        String          @map("category_id")
+  description       String?         @db.Text
+  paymentMethod     PaymentMethod   @default(CASH) @map("payment_method")
+  frequency         Recurrence      // DAILY, WEEKLY, MONTHLY
+  startDate         DateTime        @map("start_date") @db.Date
+  endDate           DateTime?       @map("end_date") @db.Date
+  lastRunDate       DateTime?       @map("last_run_date") @db.Date
+  nextRunDate       DateTime        @map("next_run_date") @db.Date
+  isActive          Boolean         @default(true) @map("is_active")
+  createdAt         DateTime        @default(now()) @map("created_at")
+  updatedAt         DateTime        @updatedAt @map("updated_at")
+
+  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  group        Group?        @relation(fields: [groupId], references: [id])
+  category     Category      @relation(fields: [categoryId], references: [id])
+  transactions Transaction[]
+
+  @@index([isActive, nextRunDate])
+  @@index([userId])
+  @@index([groupId])
+  @@map("recurring_rules")
 }
 
 model Category {
@@ -331,12 +384,14 @@ model Category {
   isSystem  Boolean @default(false) @map("is_system")
   isArchived Boolean @default(false) @map("is_archived")
 
-  parent       Category?     @relation("CategoryHierarchy", fields: [parentId], references: [id], onDelete: Restrict, onUpdate: Restrict)
-  children     Category[]    @relation("CategoryHierarchy")
-  transactions Transaction[]
-  budgets      Budget[]
+  parent         Category?       @relation("CategoryHierarchy", fields: [parentId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  children       Category[]      @relation("CategoryHierarchy")
+  transactions   Transaction[]
+  budgets        Budget[]
+  recurringRules RecurringRule[]
 
   @@unique([userId, name])
+  @@index([parentId])
   @@map("categories")
 }
 
@@ -360,6 +415,7 @@ model Budget {
 
   @@unique([userId, categoryId, startDate])
   @@index([groupId])
+  @@index([categoryId])
   @@map("budgets")
 }
 
@@ -412,6 +468,8 @@ enum ResourceType {
   TASK_LIST
   GROCERY_LIST
   TASK
+  USER
+  GROUP
 }
 
 enum Permission {
@@ -445,6 +503,11 @@ enum AuditAction {
   DELETE
   SHARE
   PERMISSION_CHANGE
+  ROLE_CHANGE
+  OWNERSHIP_TRANSFER
+  PASSWORD_RESET
+  DEACTIVATE_USER
+  REACTIVATE_USER
   LOGIN
   LOGOUT
   EXPORT
@@ -474,6 +537,7 @@ enum NotificationType {
   TASK_ASSIGNED
   TASK_DUE_SOON
   TASK_OVERDUE
+  TASK_COMPLETED
   ITEM_PURCHASED
   BUDGET_ALERT
   SYSTEM
@@ -490,15 +554,17 @@ model Group {
   createdAt   DateTime @default(now()) @map("created_at")
   updatedAt   DateTime @updatedAt @map("updated_at")
 
-  owner        User              @relation("GroupOwner", fields: [ownerId], references: [id])
-  members      GroupMember[]
-  invitations  GroupInvitation[]
-  taskLists    TaskList[]
-  groceryLists GroceryList[]
-  transactions Transaction[]
-  budgets      Budget[]
-  pantryItems  PantryItem[]
+  owner          User              @relation("GroupOwner", fields: [ownerId], references: [id])
+  members        GroupMember[]
+  invitations    GroupInvitation[]
+  taskLists      TaskList[]
+  groceryLists   GroceryList[]
+  transactions   Transaction[]
+  budgets        Budget[]
+  pantryItems    PantryItem[]
+  recurringRules RecurringRule[]
 
+  @@index([ownerId])
   @@map("groups")
 }
 
@@ -514,6 +580,7 @@ model GroupMember {
   group Group @relation(fields: [groupId], references: [id], onDelete: Cascade)
 
   @@unique([userId, groupId])
+  @@index([groupId])
   @@map("group_members")
 }
 
@@ -530,6 +597,8 @@ model GroupInvitation {
   group   Group @relation(fields: [groupId], references: [id], onDelete: Cascade)
   inviter User  @relation(fields: [inviterId], references: [id])
 
+  @@index([groupId])
+  @@index([inviterId])
   @@map("group_invitations")
 }
 
