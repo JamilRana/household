@@ -5,26 +5,25 @@ import {
   ListTodo, 
   ShoppingCart, 
   Banknote, 
-  MoreHorizontal 
+  Package 
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
-import { motion } from "motion/react";
 
 const items = [
-  { label: "Home", href: "/dashboard", icon: LayoutDashboard },
+  { label: "Overview", href: "/dashboard", icon: LayoutDashboard },
   { label: "Tasks", href: "/tasks", icon: ListTodo },
   { label: "Groceries", href: "/groceries", icon: ShoppingCart },
+  { label: "Pantry", href: "/pantry", icon: Package },
   { label: "Finance", href: "/finance", icon: Banknote },
-  { label: "More", href: "/more", icon: MoreHorizontal }, // Or a drawer trigger
 ];
 
 export function BottomNav() {
   const pathname = usePathname();
 
   return (
-    <nav className="fixed bottom-0 left-0 right-0 h-20 bg-background/80 backdrop-blur-2xl border-t z-50 flex items-center justify-around px-4 lg:hidden pb-safe">
+    <nav className="fixed bottom-0 left-0 right-0 h-16 bg-card border-t border-border z-50 flex items-center justify-around px-2 lg:hidden">
       {items.map((item) => {
         const isActive = pathname === item.href || (item.href !== "/dashboard" && pathname.startsWith(item.href));
         
@@ -32,27 +31,13 @@ export function BottomNav() {
           <Link 
             key={item.href} 
             href={item.href}
-            className="relative flex flex-col items-center gap-1 py-2 px-4 group"
-          >
-            {isActive && (
-              <motion.div
-                layoutId="bottom-nav-active"
-                className="absolute inset-0 bg-primary/10 rounded-2xl"
-                transition={{ type: "spring", bounce: 0.2, duration: 0.6 }}
-              />
+            className={cn(
+              "flex flex-col items-center gap-1 py-1 px-3 text-xs font-medium transition-colors",
+              isActive ? "text-primary font-semibold" : "text-muted-foreground hover:text-foreground"
             )}
-            
-            <item.icon className={cn(
-              "size-6 transition-all duration-300 relative z-10",
-              isActive ? "text-primary scale-110" : "text-muted-foreground group-hover:scale-110"
-            )} />
-            
-            <span className={cn(
-              "text-[10px] font-black uppercase tracking-widest relative z-10",
-              isActive ? "text-primary" : "text-muted-foreground"
-            )}>
-              {item.label}
-            </span>
+          >
+            <item.icon className="size-5 shrink-0" />
+            <span className="text-[11px]">{item.label}</span>
           </Link>
         );
       })}

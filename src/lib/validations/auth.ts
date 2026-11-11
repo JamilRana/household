@@ -17,8 +17,8 @@ export const RegisterSchema = z.object({
   }),
   password: z
     .string()
-    .min(10, {
-      message: "Minimum 10 characters required",
+    .min(6, {
+      message: "Minimum 6 characters required",
     })
     .max(72, {
       message: "Password cannot exceed 72 bytes (bcrypt limitation)",
@@ -32,7 +32,7 @@ export const ChangePasswordSchema = z.object({
   currentPassword: z.string().min(1, "Current password is required"),
   newPassword: z
     .string()
-    .min(10, "New password must be at least 10 characters")
+    .min(6, "New password must be at least 6 characters")
     .max(72, "Password cannot exceed 72 bytes"),
 });
 
@@ -44,6 +44,6 @@ export const ResetPasswordSchema = z.object({
   token: z.string().min(1, "Reset token is required"),
   password: z
     .string()
-    .min(10, "New password must be at least 10 characters")
+    .min(6, "New password must be at least 6 characters")
     .max(72, "Password cannot exceed 72 bytes"),
 });

@@ -181,7 +181,7 @@ const CreateUserSchema = z.object({
   name: z.string().min(1, "Name is required"),
   password: z
     .string()
-    .min(10, "Password must be at least 10 characters")
+    .min(6, "Password must be at least 6 characters")
     .max(72, "Password cannot exceed 72 bytes"),
   role: z.enum(["USER", "ADMIN", "SUPERADMIN"]).optional().default("USER"),
 });

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
-import { Search, Bell, Moon, Sun, SearchIcon, X, Loader2, ChevronRight } from "lucide-react";
+import { Search, Bell, Moon, Sun, Check, Loader2 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { 
@@ -17,12 +17,10 @@ import {
   clearAllNotifications 
 } from "@/lib/actions/notifications";
 import { formatDistanceToNow } from "date-fns";
-import { cn } from "@/lib/utils";
 import { usePathname } from "next/navigation";
-
-import { GroupSelector } from "@/components/group-selector";
 import { globalSearch } from "@/lib/actions/search";
-import { useDebounce } from "@/hooks/use-debounce"; // I'll need to create this
+import { useDebounce } from "@/hooks/use-debounce";
+import Link from "next/link";
 
 export function AppHeader() {
   const [notifications, setNotifications] = useState<any[]>([]);
@@ -48,192 +46,184 @@ export function AppHeader() {
 
   useEffect(() => {
     const fetchNotifications = async () => {
-      const data = await getNotifications();
-      setNotifications(data);
-      setUnreadCount(data.filter((n: any) => !n.isRead).length);
+      try {
+        const data = await getNotifications();
+        setNotifications(data);
+        setUnreadCount(data.filter((n: any) => !n.isRead).length);
+      } catch {
+        // Fallback silently if unauthenticated or error
+      }
     };
 
     fetchNotifications();
-    const interval = setInterval(fetchNotifications, 30000); // Poll every 30s
+    const interval = setInterval(fetchNotifications, 30000);
     return () => clearInterval(interval);
   }, [pathname]);
 
-  const handleMarkAsRead = async (id: string) => {
-    await markAsRead(id);
-    setNotifications(prev => prev.map(n => n.id === id ? { ...n, isRead: true } : n));
-    setUnreadCount(prev => Math.max(0, prev - 1));
-  };
-
-  const handleMarkAllRead = async () => {
-    await markAllAsRead();
-    setNotifications(prev => prev.map(n => ({ ...n, isRead: true })));
-    setUnreadCount(0);
-  };
-
-  const handleClearAll = async () => {
-    await clearAllNotifications();
-    setNotifications([]);
-    setUnreadCount(0);
-  };
-
   useEffect(() => {
-    const performSearch = async () => {
-      if (debouncedSearch.length >= 2) {
-        setIsSearching(true);
+    if (!debouncedSearch.trim()) {
+      setSearchResults(null);
+      return;
+    }
+
+    const runSearch = async () => {
+      setIsSearching(true);
+      try {
         const results = await globalSearch(debouncedSearch);
         setSearchResults(results);
+      } catch (err) {
+        console.error("Search error:", err);
+      } finally {
         setIsSearching(false);
-      } else {
-        setSearchResults(null);
       }
     };
-    performSearch();
+
+    runSearch();
   }, [debouncedSearch]);
 
-  return (
-    <header className="h-20 border-b bg-background/50 backdrop-blur-xl sticky top-0 z-40 px-6 lg:px-10 flex items-center justify-between gap-4">
-      <div className="lg:hidden">
-        <GroupSelector className="h-11 w-40" />
-      </div>
+  const toggleTheme = () => {
+    const isDark = document.documentElement.classList.contains("dark");
+    if (isDark) {
+      document.documentElement.classList.remove("dark");
+      document.cookie = "theme=light; path=/; max-age=31536000";
+    } else {
+      document.documentElement.classList.add("dark");
+      document.cookie = "theme=dark; path=/; max-age=31536000";
+    }
+  };
 
-      <div className="flex-1 max-w-md relative group hidden md:block">
-        <div className="absolute left-4 top-1/2 -translate-y-1/2 text-muted-foreground group-focus-within:text-primary transition-colors flex items-center gap-2">
-          <Search className="size-4" />
+  return (
+    <header className="h-14 border-b border-border bg-card px-4 lg:px-6 flex items-center justify-between gap-4 sticky top-0 z-40">
+      {/* Search Bar */}
+      <div className="relative flex-1 max-w-md">
+        <div className="relative">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
+          <Input 
+            ref={searchInputRef}
+            type="search"
+            placeholder="Search tasks, groceries, expenses... (⌘K)"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="pl-9 pr-8 h-9 text-xs bg-background border-border"
+          />
+          {isSearching && (
+            <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 size-3.5 animate-spin text-muted-foreground" />
+          )}
         </div>
-        <Input 
-          ref={searchInputRef}
-          placeholder="Global search..." 
-          className="pl-10 h-12 rounded-[1.25rem] bg-muted/30 border-none focus-visible:ring-2 focus-visible:ring-primary/20 transition-all w-full font-bold shadow-inner"
-          value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
-        />
-        <div className="absolute right-4 top-1/2 -translate-y-1/2 flex items-center gap-1 pointer-events-none opacity-40 group-focus-within:opacity-0 transition-opacity">
-          <kbd className="h-5 px-1.5 rounded bg-muted border border-muted-foreground/20 text-[10px] font-black uppercase tracking-widest flex items-center justify-center">Ctrl</kbd>
-          <kbd className="h-5 px-1.5 rounded bg-muted border border-muted-foreground/20 text-[10px] font-black uppercase tracking-widest flex items-center justify-center">K</kbd>
-        </div>
-        
-        {searchQuery.length >= 2 && (
-          <div className="absolute top-full left-0 right-0 mt-4 p-4 bg-background/80 backdrop-blur-3xl border border-muted/50 rounded-[2.5rem] shadow-[0_32px_64px_-16px_rgba(0,0,0,0.2)] z-50 max-h-[500px] overflow-y-auto animate-in fade-in zoom-in-95 duration-200">
-            {isSearching ? (
-              <div className="py-12 text-center space-y-4">
-                <Loader2 className="size-8 animate-spin mx-auto text-primary" />
-                <p className="text-xs font-black uppercase tracking-widest text-muted-foreground">Searching universe...</p>
-              </div>
-            ) : searchResults && Object.values(searchResults).some((arr: any) => arr.length > 0) ? (
-              <div className="space-y-6">
-                {Object.entries(searchResults).map(([key, items]: [string, any]) => (
-                  items.length > 0 && (
-                    <div key={key} className="space-y-2">
-                      <h4 className="px-4 py-1 text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground flex items-center justify-between">
-                        {key}
-                        <span className="h-px flex-1 ml-4 bg-muted/50" />
-                      </h4>
-                      <div className="grid gap-1">
-                        {items.map((item: any) => (
-                          <div 
-                            key={item.id} 
-                            onClick={() => {
-                              setSearchQuery("");
-                            }}
-                            className="p-4 rounded-[1.25rem] hover:bg-primary/5 cursor-pointer transition-all flex flex-col group/item border border-transparent hover:border-primary/10"
-                          >
-                            <div className="flex items-center justify-between">
-                              <span className="font-black text-sm tracking-tight group-hover/item:text-primary transition-colors">{item.title || item.name || item.description}</span>
-                              <ChevronRight className="size-4 opacity-0 group-hover/item:opacity-100 -translate-x-2 group-hover/item:translate-x-0 transition-all text-primary" />
-                            </div>
-                            <div className="flex items-center gap-2 mt-1">
-                              {item.list && <span className="text-[10px] text-muted-foreground font-black uppercase tracking-widest">{item.list.name}</span>}
-                              {item.category && <span className="text-[10px] text-primary/60 font-black uppercase tracking-widest">#{item.category.name}</span>}
-                              {item.location && <span className="text-[10px] text-amber-600/60 font-black uppercase tracking-widest">@{item.location}</span>}
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )
-                ))}
-              </div>
+
+        {/* Search Results Dropdown */}
+        {searchResults && (
+          <div className="absolute top-full left-0 right-0 mt-1 bg-popover border border-border rounded-lg shadow-md p-2 z-50 max-h-80 overflow-y-auto divide-y divide-border text-xs">
+            {Object.keys(searchResults).length === 0 ? (
+              <p className="p-3 text-muted-foreground text-center">No results found.</p>
             ) : (
-              <div className="py-20 text-center space-y-4">
-                <div className="bg-muted/50 w-20 h-20 rounded-full flex items-center justify-center mx-auto opacity-20">
-                  <Search className="size-10" />
-                </div>
-                <div className="space-y-1">
-                  <p className="font-black text-lg">No matches found</p>
-                  <p className="text-sm text-muted-foreground font-bold">Try adjusting your search terms</p>
-                </div>
-              </div>
+              Object.entries(searchResults).map(([category, items]: [string, any]) => (
+                items.length > 0 && (
+                  <div key={category} className="py-2 first:pt-0 last:pb-0">
+                    <p className="px-2 py-1 text-[11px] font-semibold text-muted-foreground capitalize">{category}</p>
+                    {items.map((item: any) => (
+                      <Link 
+                        key={item.id}
+                        href={item.href || `/${category}`}
+                        onClick={() => setSearchQuery("")}
+                        className="block px-2 py-1.5 rounded hover:bg-muted text-foreground transition-colors"
+                      >
+                        {item.title || item.name || item.description}
+                      </Link>
+                    ))}
+                  </div>
+                )
+              ))
             )}
           </div>
         )}
       </div>
 
-      <div className="flex items-center gap-4">
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button variant="ghost" size="icon" className="relative rounded-2xl size-11 bg-muted/50 hover:bg-muted transition-colors">
-              <Bell className="size-5" />
-              {unreadCount > 0 && (
-                <span className="absolute top-2 right-2 size-2.5 bg-primary rounded-full border-2 border-background animate-pulse" />
-              )}
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-96 p-4 rounded-[2.5rem] shadow-2xl border-muted/50 bg-background/80 backdrop-blur-2xl">
-            <div className="flex items-center justify-between pb-4 border-b border-muted/50 mb-4">
-              <h3 className="font-black tracking-tight text-xl">Notifications</h3>
-              <div className="flex gap-2">
-                <Button variant="ghost" size="sm" onClick={handleMarkAllRead} className="text-[10px] font-black uppercase tracking-widest h-8 px-3 rounded-xl">Read All</Button>
-                <Button variant="ghost" size="sm" onClick={handleClearAll} className="text-[10px] font-black uppercase tracking-widest h-8 px-3 rounded-xl text-rose-500 hover:text-rose-600">Clear</Button>
-              </div>
-            </div>
-            <div className="max-h-[400px] overflow-y-auto space-y-2 pr-2">
-              {notifications.length > 0 ? (
-                notifications.map((n) => (
-                  <DropdownMenuItem 
-                    key={n.id} 
-                    className={cn(
-                      "p-4 rounded-[1.5rem] cursor-pointer flex flex-col gap-1 items-start transition-all duration-300",
-                      !n.isRead ? "bg-primary/5 hover:bg-primary/10 border-l-4 border-primary" : "hover:bg-muted/50"
-                    )}
-                    onClick={() => handleMarkAsRead(n.id)}
-                  >
-                    <div className="flex justify-between w-full items-start gap-4">
-                      <span className="font-black text-sm tracking-tight">{n.title}</span>
-                      <span className="text-[10px] text-muted-foreground font-black uppercase tracking-widest whitespace-nowrap">{formatDistanceToNow(new Date(n.createdAt))} ago</span>
-                    </div>
-                    <p className="text-xs text-slate-500 font-medium leading-relaxed">{n.message}</p>
-                  </DropdownMenuItem>
-                ))
-              ) : (
-                <div className="py-20 text-center space-y-4">
-                  <div className="bg-muted/50 w-16 h-16 rounded-full flex items-center justify-center mx-auto">
-                    <Bell className="size-8 text-muted-foreground/30" />
-                  </div>
-                  <p className="text-muted-foreground text-sm font-bold italic tracking-tight">No notifications yet</p>
-                </div>
-              )}
-            </div>
-          </DropdownMenuContent>
-        </DropdownMenu>
-
+      {/* Header Controls */}
+      <div className="flex items-center gap-1.5">
+        {/* Theme Toggle */}
         <Button 
           variant="ghost" 
           size="icon" 
-          className="rounded-2xl size-11 bg-muted/50 hover:bg-muted transition-colors"
-          onClick={() => {
-             const html = document.documentElement;
-             if (html.classList.contains('dark')) {
-               html.classList.remove('dark');
-               document.cookie = "theme=light; path=/";
-             } else {
-               html.classList.add('dark');
-               document.cookie = "theme=dark; path=/";
-             }
-          }}
+          onClick={toggleTheme}
+          aria-label="Toggle color theme"
+          className="size-8 text-muted-foreground hover:text-foreground"
         >
-          <Sun className="size-5 rotate-0 scale-100 transition-all dark:-rotate-90 dark:scale-0" />
-          <Moon className="absolute size-5 rotate-90 scale-0 transition-all dark:rotate-0 dark:scale-100" />
+          <Sun className="size-4 rotate-0 scale-100 transition-transform dark:-rotate-90 dark:scale-0" />
+          <Moon className="absolute size-4 rotate-90 scale-0 transition-transform dark:rotate-0 dark:scale-100" />
         </Button>
+
+        {/* Notification Bell */}
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button 
+              variant="ghost" 
+              size="icon" 
+              className="relative size-8 text-muted-foreground hover:text-foreground"
+              aria-label="Notifications"
+            >
+              <Bell className="size-4" />
+              {unreadCount > 0 && (
+                <span className="absolute top-1.5 right-1.5 size-2 bg-primary rounded-full" />
+              )}
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-80 p-0">
+            <div className="flex items-center justify-between px-3 py-2 border-b border-border text-xs">
+              <span className="font-semibold text-foreground">Notifications</span>
+              {unreadCount > 0 && (
+                <button 
+                  onClick={async () => {
+                    await markAllAsRead();
+                    setUnreadCount(0);
+                  }}
+                  className="text-primary hover:underline"
+                >
+                  Mark all as read
+                </button>
+              )}
+            </div>
+
+            <div className="max-h-72 overflow-y-auto divide-y divide-border text-xs">
+              {notifications.length === 0 ? (
+                <p className="p-4 text-center text-muted-foreground">No notifications</p>
+              ) : (
+                notifications.slice(0, 8).map((n) => (
+                  <div 
+                    key={n.id}
+                    onClick={async () => {
+                      if (!n.isRead) {
+                        await markAsRead(n.id);
+                        setUnreadCount((c) => Math.max(0, c - 1));
+                      }
+                    }}
+                    className={`p-3 cursor-pointer hover:bg-muted/50 transition-colors ${!n.isRead ? "bg-muted/20 font-medium" : "text-muted-foreground"}`}
+                  >
+                    <p className="text-foreground">{n.title || n.message}</p>
+                    <time className="text-[10px] text-muted-foreground mt-1 block">
+                      {n.createdAt ? formatDistanceToNow(new Date(n.createdAt), { addSuffix: true }) : ""}
+                    </time>
+                  </div>
+                ))
+              )}
+            </div>
+
+            {notifications.length > 0 && (
+              <div className="p-2 border-t border-border text-center">
+                <button 
+                  onClick={async () => {
+                    await clearAllNotifications();
+                    setNotifications([]);
+                    setUnreadCount(0);
+                  }}
+                  className="text-[11px] text-muted-foreground hover:text-destructive transition-colors"
+                >
+                  Clear all notifications
+                </button>
+              </div>
+            )}
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
     </header>
   );

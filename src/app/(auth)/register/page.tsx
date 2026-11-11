@@ -128,7 +128,7 @@ export default function RegisterPage() {
                   <Input
                     type="password"
                     autoComplete="new-password"
-                    placeholder="At least 10 characters"
+                    placeholder="At least 6 characters"
                     disabled={isLoading}
                     {...field}
                   />
