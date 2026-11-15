@@ -25,7 +25,9 @@ import { getTaskLists, createTask } from "@/lib/actions/tasks";
 import {
   getGroceryLists,
   addGroceryItem,
+  addGroceryItems,
 } from "@/lib/actions/groceries";
+import { parseMultiGroceryInput } from "@/lib/grocery-parser";
 import { getCategories, createTransaction } from "@/lib/actions/finance";
 
 type Kind = "task" | "grocery" | "expense" | "income";
@@ -219,13 +221,27 @@ export function QuickAdd() {
         } as any);
         toast.success(`Task created: ${label}`);
       } else if (kind === "grocery") {
-        await addGroceryItem({
-          listId: targetId,
-          name: label,
-          quantity: 1,
-          unit: "pcs",
-        } as any);
-        toast.success(`Added to grocery list: ${label}`);
+        const parsed = parseMultiGroceryInput(label);
+        if (parsed.length > 1) {
+          const res = await addGroceryItems({
+            listId: targetId || undefined,
+            items: parsed.map((p) => ({
+              name: p.name,
+              quantity: p.quantity,
+              unit: p.unit,
+            })),
+          });
+          toast.success(`Added ${res.count} items to grocery list`);
+        } else {
+          const item = parsed[0] || { name: label, quantity: 1, unit: "pcs" };
+          await addGroceryItem({
+            listId: targetId,
+            name: item.name,
+            quantity: item.quantity,
+            unit: item.unit,
+          } as any);
+          toast.success(`Added to grocery list: ${item.name}`);
+        }
       }
 
       try {

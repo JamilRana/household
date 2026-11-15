@@ -5,6 +5,7 @@ import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { GroceryItemCard } from "@/components/groceries/grocery-item";
 import { AddGroceryItemModal } from "@/components/groceries/AddGroceryItemModal";
+import { QuickAddGroceryBar } from "@/components/groceries/QuickAddGroceryBar";
 import { ShareModal } from "@/components/ShareModal";
 import { 
   ShoppingBasket, 
@@ -173,6 +174,9 @@ export default async function GroceryListPage({ params }: { params: Promise<{ id
           <small className="stat-sub">Receipt total</small>
         </div>
       </div>
+
+      {/* Quick Add Bar for Multiple Items */}
+      <QuickAddGroceryBar listId={list.id} listName={list.name} />
 
       {/* Pending Items by Category */}
       {Object.keys(categoryGroups).length > 0 ? (

@@ -178,46 +178,187 @@ export async function getAllGroupGroceryItems() {
 // --- Grocery Item Actions ---
 
 const CreateGroceryItemSchema = z.object({
-  listId: z.string(),
+  listId: z.string().optional(),
   name: z.string().min(1),
   quantity: z.number().default(1),
-  unit: z.string().default("piece"),
+  unit: z.string().default("pcs"),
   category: z.string().optional(),
   estimatedPrice: z.number().optional(),
+});
+
+const BatchCreateGroceryItemsSchema = z.object({
+  listId: z.string().optional(),
+  items: z.array(
+    z.object({
+      name: z.string().min(1),
+      quantity: z.number().default(1),
+      unit: z.string().default("pcs"),
+      category: z.string().optional(),
+      estimatedPrice: z.number().optional(),
+    })
+  ).min(1, "At least one item is required"),
 });
 
 export async function addGroceryItem(values: z.infer<typeof CreateGroceryItemSchema>) {
   const session = await auth();
   if (!session?.user?.id) throw new Error("Unauthorized");
+  const userId = session.user.id;
 
-  // Security: verify user has access to this list
-  const groupId = await getActiveGroupId(session.user.id);
-  const list = await prisma.groceryList.findFirst({
-    where: {
-      id: values.listId,
-      OR: [
-        { ownerId: session.user.id },
-        { groupId: groupId ?? NO_GROUP },
-        { shares: { some: { userId: session.user.id } } },
-      ],
-    },
-  });
+  const groupId = await getActiveGroupId(userId);
+  let targetListId = values.listId?.trim();
 
-  if (!list) throw new Error("Grocery list not found or access denied");
+  let list = targetListId
+    ? await prisma.groceryList.findFirst({
+        where: {
+          id: targetListId,
+          OR: [
+            { ownerId: session.user.id },
+            { groupId: groupId ?? NO_GROUP },
+            { shares: { some: { userId: session.user.id } } },
+          ],
+        },
+      })
+    : null;
+
+  if (!list) {
+    list = await prisma.groceryList.findFirst({
+      where: {
+        OR: [
+          { ownerId: session.user.id },
+          { groupId: groupId ?? NO_GROUP },
+          { shares: { some: { userId: session.user.id } } },
+        ],
+        isArchived: false,
+      },
+      orderBy: { updatedAt: "desc" },
+    });
+
+    if (!list) {
+      list = await prisma.groceryList.create({
+        data: {
+          name: "My Shopping List",
+          ownerId: session.user.id,
+          groupId: groupId ?? null,
+        },
+      });
+    }
+  }
 
   const item = await prisma.groceryItem.create({
     data: {
-      ...values,
-      createdBy: session.user.id,
+      listId: list.id,
+      name: values.name.trim(),
+      quantity: values.quantity && values.quantity > 0 ? values.quantity : 1,
+      unit: values.unit?.trim() || "pcs",
+      category: values.category?.trim() || undefined,
+      estimatedPrice: values.estimatedPrice ? Number(values.estimatedPrice) : undefined,
+      createdBy: userId,
     },
   });
 
-  revalidatePath(`/groceries/${values.listId}`);
+  revalidatePath("/groceries");
+  revalidatePath(`/groceries/${list.id}`);
+  revalidatePath("/dashboard");
+
   return {
     ...item,
     quantity: Number(item.quantity),
     estimatedPrice: item.estimatedPrice ? Number(item.estimatedPrice) : null,
     actualPrice: item.actualPrice ? Number(item.actualPrice) : null,
+  };
+}
+
+export async function addGroceryItems(values: z.infer<typeof BatchCreateGroceryItemsSchema>) {
+  const session = await auth();
+  if (!session?.user?.id) throw new Error("Unauthorized");
+  const userId = session.user.id;
+
+  const validItems = values.items
+    .map((item) => ({
+      ...item,
+      name: item.name.trim(),
+      quantity: typeof item.quantity === "number" && item.quantity > 0 ? item.quantity : 1,
+      unit: item.unit?.trim() || "pcs",
+      category: item.category?.trim() || undefined,
+      estimatedPrice: item.estimatedPrice ? Number(item.estimatedPrice) : undefined,
+    }))
+    .filter((item) => item.name.length > 0);
+
+  if (validItems.length === 0) {
+    throw new Error("Please enter at least one item name");
+  }
+
+  const groupId = await getActiveGroupId(session.user.id);
+  let targetListId = values.listId?.trim();
+
+  let list = targetListId
+    ? await prisma.groceryList.findFirst({
+        where: {
+          id: targetListId,
+          OR: [
+            { ownerId: session.user.id },
+            { groupId: groupId ?? NO_GROUP },
+            { shares: { some: { userId: session.user.id } } },
+          ],
+        },
+      })
+    : null;
+
+  if (!list) {
+    list = await prisma.groceryList.findFirst({
+      where: {
+        OR: [
+          { ownerId: session.user.id },
+          { groupId: groupId ?? NO_GROUP },
+          { shares: { some: { userId: session.user.id } } },
+        ],
+        isArchived: false,
+      },
+      orderBy: { updatedAt: "desc" },
+    });
+
+    if (!list) {
+      list = await prisma.groceryList.create({
+        data: {
+          name: "My Shopping List",
+          ownerId: session.user.id,
+          groupId: groupId ?? null,
+        },
+      });
+    }
+  }
+
+  const created = await prisma.$transaction(
+    validItems.map((item) =>
+      prisma.groceryItem.create({
+        data: {
+          listId: list.id,
+          name: item.name,
+          quantity: item.quantity,
+          unit: item.unit,
+          category: item.category,
+          estimatedPrice: item.estimatedPrice,
+          createdBy: userId,
+        },
+      })
+    )
+  );
+
+  revalidatePath("/groceries");
+  revalidatePath(`/groceries/${list.id}`);
+  revalidatePath("/dashboard");
+
+  return {
+    success: true,
+    listId: list.id,
+    listName: list.name,
+    count: created.length,
+    items: created.map((item) => ({
+      ...item,
+      quantity: Number(item.quantity),
+      estimatedPrice: item.estimatedPrice ? Number(item.estimatedPrice) : null,
+      actualPrice: item.actualPrice ? Number(item.actualPrice) : null,
+    })),
   };
 }
 

@@ -12,6 +12,7 @@ import {
 import Link from "next/link";
 import { getGroceryLists } from "@/lib/actions/groceries";
 import { AddGroceryItemModal } from "@/components/groceries/AddGroceryItemModal";
+import { QuickAddGroceryBar } from "@/components/groceries/QuickAddGroceryBar";
 import { CategoryManager } from "@/components/groceries/CategoryManager";
 import { getActiveGroupId } from "@/lib/actions/user";
 import { GroceryListWithFilters } from "@/components/groceries/GroceryListWithFilters";
@@ -115,6 +116,9 @@ export default async function GroceriesPage() {
           <small className="stat-sub">Stores & categories</small>
         </div>
       </div>
+
+      {/* Quick Add Bar for Multiple Items */}
+      <QuickAddGroceryBar listId={lists[0]?.id} listName={lists[0]?.name} />
 
       {/* Grocery Items List in Galley Card */}
       <section className="galley-card">
