@@ -26,6 +26,7 @@ import { GroupSelector } from "@/components/group-selector";
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuGroup,
   DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuSeparator,
@@ -395,12 +396,14 @@ export function GalleyTopbar({ isAdmin = false, user }: GalleyTopbarProps) {
               </button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-56 p-1.5 rounded-2xl border border-rule bg-popover shadow-xl text-xs">
-              <DropdownMenuLabel className="px-2 py-1.5 font-normal">
-                <div className="flex flex-col space-y-0.5">
-                  <p className="font-semibold text-foreground text-sm">{user?.name || "LifeHub User"}</p>
-                  <p className="text-[11px] text-muted-foreground truncate">{user?.email || ""}</p>
-                </div>
-              </DropdownMenuLabel>
+              <DropdownMenuGroup>
+                <DropdownMenuLabel className="px-2 py-1.5 font-normal">
+                  <div className="flex flex-col space-y-0.5">
+                    <p className="font-semibold text-foreground text-sm">{user?.name || "LifeHub User"}</p>
+                    <p className="text-[11px] text-muted-foreground truncate">{user?.email || ""}</p>
+                  </div>
+                </DropdownMenuLabel>
+              </DropdownMenuGroup>
               <DropdownMenuSeparator className="bg-rule" />
               <div className="px-2 py-1.5 lg:hidden">
                 <GroupSelector />
