@@ -1,7 +1,9 @@
 //components/tasks/task-sidebar.tsx
 "use client";
 
-import { Plus, ListTodo, Hash, ChevronRight, User, Users, MoreVertical, Trash2, Edit2 } from "lucide-react";
+import { useState } from "react";
+import { useConfirm } from "@/components/confirm-provider";
+import { Plus, ListTodo, ChevronDown, ChevronRight, User, Users, MoreVertical, Trash2, Edit2, Folder } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import Link from "next/link";
@@ -10,7 +12,7 @@ import { ListFormDialog } from "./list-form-dialog";
 import {
   DropdownMenu,
   DropdownMenuContent,
-  DropdownMenuItem, 
+  DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { deleteTaskList } from "@/lib/actions/tasks";
@@ -22,13 +24,24 @@ interface TaskSidebarProps {
 }
 
 export function TaskSidebar({ lists, isMobile, onRefresh }: TaskSidebarProps) {
+  const confirm = useConfirm();
   const pathname = usePathname();
 
-  const personalLists = lists.filter(l => !l.groupId);
-  const groupLists = lists.filter(l => l.groupId);
+  const [personalOpen, setPersonalOpen] = useState(true);
+  const [groupOpen, setGroupOpen] = useState(true);
 
-  const handleDelete = async (id: string) => {
-    if (confirm("Are you sure you want to delete this list and all its tasks?")) {
+  const personalLists = lists.filter((l) => !l.groupId);
+  const groupLists = lists.filter((l) => l.groupId);
+
+  const handleDelete = async (id: string, name: string) => {
+    if (
+      await confirm({
+        title: `Delete "${name}"?`,
+        description: "All the tasks in this list will be permanently deleted.",
+        confirmLabel: "Delete list",
+        destructive: true,
+      })
+    ) {
       await deleteTaskList(id);
       onRefresh?.();
     }
@@ -36,52 +49,72 @@ export function TaskSidebar({ lists, isMobile, onRefresh }: TaskSidebarProps) {
 
   const ListItem = ({ list }: { list: any }) => {
     const isActive = pathname === `/tasks/${list.id}`;
+    const taskCount = list._count?.tasks ?? 0;
+
     return (
-      <div className="group relative flex items-center">
-        <Link href={`/tasks/${list.id}`} className="flex-1">
-          <div className={cn(
-            "flex items-center justify-between px-3 py-2.5 rounded-2xl text-sm transition-all duration-300",
-            isActive 
-              ? "bg-white dark:bg-slate-800 shadow-lg shadow-blue-500/10 text-blue-600 font-bold border border-blue-100/50 dark:border-blue-900/30" 
-              : "text-slate-500 hover:text-slate-900 dark:hover:text-slate-100 hover:bg-slate-200/50 dark:hover:bg-slate-800/50"
-          )}>
-            <div className="flex items-center gap-3">
-              <div className={cn(
-                "size-1.5 rounded-full",
-                list.groupId ? "bg-indigo-400" : "bg-blue-400"
-              )} />
-              <span className="truncate max-w-[140px]">{list.name}</span>
-            </div>
-            {list._count?.tasks > 0 && (
-              <span className={cn(
-                "text-[10px] px-2 py-0.5 rounded-full font-black",
-                isActive ? "bg-blue-600 text-white" : "bg-slate-200 dark:bg-slate-800 text-slate-500"
-              )}>
-                {list._count.tasks}
-              </span>
-            )}
+      <div className="group relative flex items-center w-full">
+        <Link
+          href={`/tasks/${list.id}`}
+          className={cn(
+            "flex items-center justify-between w-full px-2.5 py-1.5 rounded-md text-sm transition-colors",
+            isActive
+              ? "bg-accent text-accent-foreground font-semibold"
+              : "text-muted-foreground hover:text-foreground hover:bg-muted/60"
+          )}
+        >
+          <div className="flex items-center gap-2 min-w-0 pr-6">
+            <span
+              className={cn(
+                "size-2 rounded-full shrink-0",
+                list.groupId ? "bg-indigo-500" : "bg-sky-500"
+              )}
+            />
+            <span className="truncate">{list.name}</span>
           </div>
+
+          {taskCount > 0 && (
+            <span
+              className={cn(
+                "text-xs px-1.5 py-0.2 rounded font-medium shrink-0",
+                isActive
+                  ? "bg-primary text-primary-foreground font-semibold"
+                  : "bg-muted text-muted-foreground group-hover:bg-muted/80"
+              )}
+            >
+              {taskCount}
+            </span>
+          )}
         </Link>
-        <div className="absolute right-1 opacity-0 group-hover:opacity-100 transition-opacity">
-           <DropdownMenu>
+
+        {/* Hover / context menu */}
+        <div className="absolute right-1 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity">
+          <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="icon" className="h-7 w-7 rounded-lg">
-                <MoreVertical className="h-3.5 w-3.5" />
+              <Button
+                variant="ghost"
+                size="icon"
+                className="size-6 text-muted-foreground hover:text-foreground rounded"
+                aria-label={`Actions for ${list.name}`}
+              >
+                <MoreVertical className="size-3.5" />
               </Button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-40 rounded-xl">
-              <ListFormDialog 
-                list={list} 
-                onRefresh={onRefresh} 
+            <DropdownMenuContent align="end" className="w-36">
+              <ListFormDialog
+                list={list}
+                onRefresh={onRefresh}
                 trigger={
-                  <DropdownMenuItem onSelect={(e) => e.preventDefault()} className="rounded-lg">
-                    <Edit2 className="h-4 w-4 mr-2" />
-                    Edit List
+                  <DropdownMenuItem onSelect={(e) => e.preventDefault()} className="text-xs">
+                    <Edit2 className="size-3.5 mr-2" />
+                    Rename
                   </DropdownMenuItem>
                 }
               />
-              <DropdownMenuItem onClick={() => handleDelete(list.id)} className="text-rose-600 focus:text-rose-600 rounded-lg">
-                <Trash2 className="h-4 w-4 mr-2" />
+              <DropdownMenuItem
+                onClick={() => handleDelete(list.id, list.name)}
+                className="text-xs text-destructive focus:text-destructive"
+              >
+                <Trash2 className="size-3.5 mr-2" />
                 Delete
               </DropdownMenuItem>
             </DropdownMenuContent>
@@ -92,75 +125,114 @@ export function TaskSidebar({ lists, isMobile, onRefresh }: TaskSidebarProps) {
   };
 
   return (
-    <div className={cn(
-      "w-72 border-r bg-slate-50/30 dark:bg-slate-900/30 flex flex-col p-6 space-y-8 backdrop-blur-xl shrink-0 transition-all",
-      isMobile ? "h-full" : "h-[calc(100vh-80px)]"
-    )}>
-      <div className="space-y-4">
-        <div className="flex items-center justify-between px-2">
-          <h2 className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">Navigation</h2>
-        </div>
-        <nav className="space-y-2">
-          <Link href="/tasks">
-            <div className={cn(
-              "flex items-center gap-3 px-4 py-3 rounded-2xl text-sm font-black transition-all duration-300",
-              pathname === "/tasks" 
-                ? "bg-blue-600 text-white shadow-xl shadow-blue-500/25 scale-[1.02]" 
-                : "text-slate-500 hover:text-slate-900 dark:hover:text-slate-100 hover:bg-slate-200/50 dark:hover:bg-slate-800/50"
-            )}>
-              <ListTodo className="h-5 w-5" />
-              Global View
-            </div>
-          </Link>
-        </nav>
+    <div
+      className={cn(
+        "w-64 border-r border-border bg-card/50 flex flex-col p-4 space-y-6 shrink-0 transition-all text-sm",
+        isMobile ? "h-full" : "h-[calc(100vh-56px)] sticky top-14"
+      )}
+    >
+      {/* Primary Views */}
+      <div className="space-y-1">
+        <Link
+          href="/tasks"
+          className={cn(
+            "flex items-center gap-2.5 px-3 py-2 rounded-md font-medium transition-colors text-sm",
+            pathname === "/tasks"
+              ? "bg-primary text-primary-foreground font-semibold"
+              : "text-muted-foreground hover:text-foreground hover:bg-muted/60"
+          )}
+        >
+          <ListTodo className="size-4 shrink-0" />
+          <span>All Tasks</span>
+        </Link>
       </div>
 
-      {/* Personal Lists */}
-      <div className="space-y-4">
-        <div className="flex items-center justify-between px-2">
-          <h2 className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 flex items-center gap-2">
-            <User className="h-3 w-3" /> Personal
-          </h2>
-          <ListFormDialog 
-            onRefresh={onRefresh} 
+      {/* Personal Lists (Collapsible) */}
+      <div className="space-y-1">
+        <div className="flex items-center justify-between px-1 text-xs font-medium text-muted-foreground">
+          <button
+            type="button"
+            onClick={() => setPersonalOpen(!personalOpen)}
+            className="flex items-center gap-1.5 hover:text-foreground transition-colors cursor-pointer select-none"
+            aria-expanded={personalOpen}
+          >
+            {personalOpen ? (
+              <ChevronDown className="size-3.5" />
+            ) : (
+              <ChevronRight className="size-3.5" />
+            )}
+            <span className="font-semibold tracking-wide uppercase text-[11px]">Personal</span>
+            <span className="text-[11px] text-muted-foreground/70">({personalLists.length})</span>
+          </button>
+
+          <ListFormDialog
+            onRefresh={onRefresh}
             trigger={
-              <Button variant="ghost" size="icon" className="h-7 w-7 rounded-lg hover:bg-blue-50 hover:text-blue-600 transition-all">
-                <Plus className="h-4 w-4" />
+              <Button
+                variant="ghost"
+                size="icon"
+                className="size-5 rounded hover:bg-muted text-muted-foreground hover:text-foreground"
+                aria-label="Add personal list"
+              >
+                <Plus className="size-3.5" />
               </Button>
             }
           />
         </div>
-        <div className="space-y-1">
-          {personalLists.length > 0 ? (
-            personalLists.map((list) => <ListItem key={list.id} list={list} />)
-          ) : (
-            <p className="px-3 text-[11px] font-bold text-slate-400 italic">No personal lists</p>
-          )}
-        </div>
+
+        {personalOpen && (
+          <div className="space-y-0.5 pt-1 pl-1">
+            {personalLists.length > 0 ? (
+              personalLists.map((list) => <ListItem key={list.id} list={list} />)
+            ) : (
+              <p className="px-2 py-1 text-xs text-muted-foreground/70">No personal lists yet</p>
+            )}
+          </div>
+        )}
       </div>
 
-      {/* Group Lists */}
-      <div className="space-y-4">
-        <div className="flex items-center justify-between px-2">
-          <h2 className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 flex items-center gap-2">
-            <Users className="h-3 w-3" /> Group
-          </h2>
-          <ListFormDialog 
-            onRefresh={onRefresh} 
+      {/* Group Lists (Collapsible) */}
+      <div className="space-y-1">
+        <div className="flex items-center justify-between px-1 text-xs font-medium text-muted-foreground">
+          <button
+            type="button"
+            onClick={() => setGroupOpen(!groupOpen)}
+            className="flex items-center gap-1.5 hover:text-foreground transition-colors cursor-pointer select-none"
+            aria-expanded={groupOpen}
+          >
+            {groupOpen ? (
+              <ChevronDown className="size-3.5" />
+            ) : (
+              <ChevronRight className="size-3.5" />
+            )}
+            <span className="font-semibold tracking-wide uppercase text-[11px]">Group</span>
+            <span className="text-[11px] text-muted-foreground/70">({groupLists.length})</span>
+          </button>
+
+          <ListFormDialog
+            onRefresh={onRefresh}
             trigger={
-              <Button variant="ghost" size="icon" className="h-7 w-7 rounded-lg hover:bg-blue-50 hover:text-blue-600 transition-all">
-                <Plus className="h-4 w-4" />
+              <Button
+                variant="ghost"
+                size="icon"
+                className="size-5 rounded hover:bg-muted text-muted-foreground hover:text-foreground"
+                aria-label="Add group list"
+              >
+                <Plus className="size-3.5" />
               </Button>
             }
           />
         </div>
-        <div className="space-y-1">
-          {groupLists.length > 0 ? (
-            groupLists.map((list) => <ListItem key={list.id} list={list} />)
-          ) : (
-            <p className="px-3 text-[11px] font-bold text-slate-400 italic">No shared lists</p>
-          )}
-        </div>
+
+        {groupOpen && (
+          <div className="space-y-0.5 pt-1 pl-1">
+            {groupLists.length > 0 ? (
+              groupLists.map((list) => <ListItem key={list.id} list={list} />)
+            ) : (
+              <p className="px-2 py-1 text-xs text-muted-foreground/70">No group lists yet</p>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );

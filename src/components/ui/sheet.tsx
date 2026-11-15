@@ -17,7 +17,7 @@ function SheetTrigger({
 }: DialogPrimitive.Trigger.Props & { asChild?: boolean }) {
   if (asChild) {
     return (
-      <DialogPrimitive.Trigger data-slot="sheet-trigger" {...props} render={children as any} />
+      <DialogPrimitive.Trigger {...props} render={children as any} />
     )
   }
   return <DialogPrimitive.Trigger data-slot="sheet-trigger" {...props}>{children}</DialogPrimitive.Trigger>
@@ -61,9 +61,11 @@ function SheetContent({
       <DialogPrimitive.Popup
         data-slot="sheet-content"
         className={cn(
-          "fixed z-50 bg-white dark:bg-slate-900 shadow-2xl transition-transform duration-300 outline-none",
+          "fixed z-50 bg-white dark:bg-slate-900 shadow-lg transition-transform duration-300 outline-none",
           side === "left" && "inset-y-0 left-0 w-72 data-open:animate-in data-open:slide-in-from-left data-closed:animate-out data-closed:slide-out-to-left",
           side === "right" && "inset-y-0 right-0 w-72 data-open:animate-in data-open:slide-in-from-right data-closed:animate-out data-closed:slide-out-to-right",
+          side === "bottom" && "inset-x-0 bottom-0 max-h-[85vh] overflow-y-auto data-open:animate-in data-open:slide-in-from-bottom data-closed:animate-out data-closed:slide-out-to-bottom",
+          side === "top" && "inset-x-0 top-0 max-h-[85vh] overflow-y-auto data-open:animate-in data-open:slide-in-from-top data-closed:animate-out data-closed:slide-out-to-top",
           className
         )}
         {...props}

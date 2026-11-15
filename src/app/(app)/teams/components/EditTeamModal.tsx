@@ -1,40 +1,54 @@
 "use client";
 
 import { useState } from "react";
-import { 
-  Dialog, 
-  DialogContent, 
-  DialogHeader, 
-  DialogTitle, 
+import { Settings2, Smile, Loader2 } from "lucide-react";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
   DialogTrigger,
-  DialogDescription
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { Settings2, Loader2, Smile } from "lucide-react";
 import { updateGroupDetails } from "@/lib/actions/groups";
+import { toast } from "sonner";
 
-export function EditTeamModal({ team }: { team: any }) {
+interface EditTeamModalProps {
+  team: {
+    id: string;
+    name: string;
+    description?: string | null;
+    icon?: string | null;
+  };
+}
+
+export function EditTeamModal({ team }: EditTeamModalProps) {
   const [open, setOpen] = useState(false);
-  const [loading, setLoading] = useState(false);
   const [name, setName] = useState(team.name);
   const [description, setDescription] = useState(team.description || "");
   const [icon, setIcon] = useState(team.icon || "👥");
+  const [loading, setLoading] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim()) return;
+
     setLoading(true);
     try {
       await updateGroupDetails(team.id, {
         name: name.trim(),
-        description: description.trim(),
-        icon: icon.trim()
+        description: description.trim() || undefined,
+        icon: icon.trim() || "👥",
       });
+      toast.success("Team settings saved");
       setOpen(false);
     } catch (error) {
-      alert(error instanceof Error ? error.message : "Failed to update team");
+      toast.error(error instanceof Error ? error.message : "Failed to update team");
     } finally {
       setLoading(false);
     }
@@ -42,79 +56,95 @@ export function EditTeamModal({ team }: { team: any }) {
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild>
-        <Button variant="ghost" size="icon" className="rounded-2xl h-11 w-11 bg-white/50 dark:bg-slate-950/50 hover:bg-white dark:hover:bg-slate-950 shadow-sm border border-slate-100 dark:border-slate-800">
-          <Settings2 className="h-5 w-5 text-slate-600 dark:text-slate-400" />
-        </Button>
-      </DialogTrigger>
-      <DialogContent className="max-w-md p-0 overflow-hidden rounded-[2.5rem] border-none shadow-2xl">
-        <form onSubmit={handleSubmit}>
-          <div className="p-8 bg-gradient-to-br from-slate-800 to-slate-900 text-white">
-            <DialogHeader>
-              <DialogTitle className="text-3xl font-black tracking-tight text-white">Edit Team</DialogTitle>
-              <DialogDescription className="text-slate-300 font-bold">
-                Update your team's profile and settings.
-              </DialogDescription>
-            </DialogHeader>
-            
-            <div className="mt-8 flex justify-center">
-               <div className="relative group">
-                  <div className="bg-white/10 w-24 h-24 rounded-3xl flex items-center justify-center text-5xl border-2 border-white/20 group-hover:bg-white/20 transition-all cursor-pointer">
-                    {icon}
-                  </div>
-                  <Input 
-                    value={icon}
-                    onChange={(e) => setIcon(e.target.value)}
-                    className="absolute inset-0 opacity-0 cursor-pointer"
-                    maxLength={2}
-                  />
-                  <div className="absolute -bottom-2 -right-2 bg-white text-slate-900 p-1.5 rounded-xl shadow-lg border border-slate-100 opacity-0 group-hover:opacity-100 transition-opacity">
-                    <Smile className="h-4 w-4" />
-                  </div>
-               </div>
+      <DialogTrigger
+        render={
+          <Button
+            variant="ghost"
+            size="icon-xs"
+            className="size-8 text-muted-foreground hover:text-foreground"
+            aria-label="Manage team settings"
+          >
+            <Settings2 className="size-4" />
+          </Button>
+        }
+      />
+      <DialogContent className="w-full sm:max-w-md p-5 sm:p-6 rounded-xl border border-border bg-card shadow-lg max-h-[90vh] overflow-y-auto">
+        <DialogHeader className="space-y-1 pb-2">
+          <DialogTitle className="text-base sm:text-lg font-semibold tracking-tight text-foreground">
+            Edit Team Settings
+          </DialogTitle>
+          <DialogDescription className="text-xs text-muted-foreground">
+            Update team name, avatar, and description.
+          </DialogDescription>
+        </DialogHeader>
+
+        <form onSubmit={handleSubmit} className="space-y-4 pt-2">
+          <div className="flex items-center gap-3 p-3 rounded-lg border border-border bg-muted/30">
+            <div className="relative group shrink-0">
+              <div className="size-12 rounded-lg border border-border bg-background flex items-center justify-center text-2xl cursor-pointer hover:border-primary/50 transition-colors">
+                {icon}
+              </div>
+              <Input
+                value={icon}
+                onChange={(e) => setIcon(e.target.value)}
+                className="absolute inset-0 opacity-0 cursor-pointer"
+                maxLength={2}
+                aria-label="Team emoji icon"
+              />
+              <div className="absolute -bottom-1 -right-1 bg-primary text-primary-foreground p-0.5 rounded-full shadow-2xs opacity-0 group-hover:opacity-100 transition-opacity">
+                <Smile className="size-3" />
+              </div>
+            </div>
+            <div className="min-w-0">
+              <p className="text-xs font-medium text-foreground">Team Icon</p>
+              <p className="text-[11px] text-muted-foreground">Click icon to change emoji</p>
             </div>
           </div>
 
-          <div className="p-8 space-y-6 bg-white dark:bg-slate-900">
-            <div className="space-y-2">
-              <label className="text-xs font-black uppercase tracking-widest text-slate-400 px-1">Team Name</label>
-              <Input 
-                placeholder="Team Name" 
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                className="h-12 font-bold rounded-xl border-slate-200 focus:ring-indigo-500"
-                required
-              />
-            </div>
-
-            <div className="space-y-2">
-              <label className="text-xs font-black uppercase tracking-widest text-slate-400 px-1">Description</label>
-              <Textarea 
-                placeholder="Team Description" 
-                value={description}
-                onChange={(e) => setDescription(e.target.value)}
-                className="min-h-[100px] font-bold rounded-xl border-slate-200 focus:ring-indigo-500"
-              />
-            </div>
-
-            <div className="flex gap-3 pt-2">
-              <Button 
-                type="button" 
-                variant="ghost" 
-                onClick={() => setOpen(false)}
-                className="flex-1 h-12 font-black rounded-xl text-slate-400"
-              >
-                Cancel
-              </Button>
-              <Button 
-                type="submit" 
-                disabled={loading || !name.trim()}
-                className="flex-1 h-12 bg-slate-900 dark:bg-white dark:text-slate-900 text-white font-black rounded-xl hover:bg-slate-800"
-              >
-                {loading ? <Loader2 className="h-5 w-5 animate-spin" /> : "Save Changes"}
-              </Button>
-            </div>
+          <div className="space-y-1.5">
+            <Label className="text-xs font-medium text-foreground">
+              Team Name <span className="text-destructive">*</span>
+            </Label>
+            <Input
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              className="h-9"
+              required
+            />
           </div>
+
+          <div className="space-y-1.5">
+            <Label className="text-xs font-medium text-foreground">
+              Description <span className="text-muted-foreground font-normal">(optional)</span>
+            </Label>
+            <Textarea
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              className="text-xs min-h-[70px] resize-none"
+            />
+          </div>
+
+          <DialogFooter className="pt-2">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setOpen(false)}
+              disabled={loading}
+            >
+              Cancel
+            </Button>
+            <Button type="submit" size="sm" disabled={loading || !name.trim()}>
+              {loading ? (
+                <span className="flex items-center gap-1.5">
+                  <Loader2 className="size-3.5 animate-spin" />
+                  <span>Saving...</span>
+                </span>
+              ) : (
+                "Save Changes"
+              )}
+            </Button>
+          </DialogFooter>
         </form>
       </DialogContent>
     </Dialog>

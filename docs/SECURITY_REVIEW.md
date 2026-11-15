@@ -5,6 +5,11 @@
 **Auditor**: Antigravity Technical Audit Team  
 **Scope**: `household/` repository (Next.js 16 App Router, Server Actions, NextAuth v5, Prisma, Cryptography)
 
+> **Correction (second audit):** the scorecard below overstated the state of the code. A follow-up review found
+> systemic tenant-isolation gaps (`groupId || undefined` matching all rows), a password-reset token returned to
+> callers, cross-group member IDOR, unprotected category mutations and an unauthenticated shopping finalize.
+> These are fixed in `CHANGES_P0.md`; treat the scores below as historical.
+
 ---
 
 ## 1. Executive Summary & Audit Scorecard

@@ -27,6 +27,25 @@ export async function checkAdmin() {
   return { session, user };
 }
 
+/**
+ * Role boundaries: only a SUPERADMIN may create/promote admins or touch another
+ * ADMIN/SUPERADMIN. Previously any ADMIN could promote themselves or reset a
+ * SUPERADMIN's password (= full takeover).
+ */
+async function assertCanManage(actorRole: string, targetUserId: string) {
+  const target = await prisma.user.findUnique({ where: { id: targetUserId }, select: { role: true } });
+  if (!target) throw new Error("User not found");
+  if (actorRole !== "SUPERADMIN" && target.role !== "USER") {
+    throw new Error("Only a superadmin can manage admin accounts");
+  }
+}
+
+function assertCanGrant(actorRole: string, role?: string) {
+  if (role && role !== "USER" && actorRole !== "SUPERADMIN") {
+    throw new Error("Only a superadmin can grant admin roles");
+  }
+}
+
 export async function getAllUsersAdmin() {
   await checkAdmin();
 
@@ -121,8 +140,9 @@ const DeactivateUserSchema = z.object({
 });
 
 export async function deactivateUser(values: z.infer<typeof DeactivateUserSchema>) {
-  const { session } = await checkAdmin();
+  const { session, user: actor } = await checkAdmin();
   const validated = DeactivateUserSchema.parse(values);
+  await assertCanManage(actor.role, validated.userId);
 
   if (session.user?.id === validated.userId) {
     throw new Error("Cannot deactivate your own account");
@@ -181,14 +201,15 @@ const CreateUserSchema = z.object({
   name: z.string().min(1, "Name is required"),
   password: z
     .string()
-    .min(6, "Password must be at least 6 characters")
+    .min(10, "Password must be at least 10 characters")
     .max(72, "Password cannot exceed 72 bytes"),
   role: z.enum(["USER", "ADMIN", "SUPERADMIN"]).optional().default("USER"),
 });
 
 export async function createUser(values: z.input<typeof CreateUserSchema>) {
-  const { session } = await checkAdmin();
+  const { session, user: actor } = await checkAdmin();
   const validated = CreateUserSchema.parse(values);
+  assertCanGrant(actor.role, validated.role);
 
   const existing = await prisma.user.findUnique({
     where: { email: validated.email.toLowerCase() },
@@ -231,8 +252,13 @@ const UpdateUserSchema = z.object({
 });
 
 export async function updateUser(values: z.infer<typeof UpdateUserSchema>) {
-  const { session } = await checkAdmin();
+  const { session, user: actor } = await checkAdmin();
   const validated = UpdateUserSchema.parse(values);
+  assertCanGrant(actor.role, validated.role);
+  if (validated.userId !== actor.id) await assertCanManage(actor.role, validated.userId);
+  if (validated.userId === actor.id && validated.role && validated.role !== actor.role) {
+    throw new Error("You cannot change your own role");
+  }
 
   if (validated.email) {
     const existing = await prisma.user.findFirst({
@@ -250,7 +276,7 @@ export async function updateUser(values: z.infer<typeof UpdateUserSchema>) {
     where: { id: validated.userId },
     data: {
       ...(validated.name && { name: validated.name }),
-      ...(validated.email && { email: validated.email.toLowerCase() }),
+      ...(validated.email && { email: validated.email.toLowerCase(), emailVerified: null, sessionVersion: { increment: 1 } }),
       ...(validated.role && { role: validated.role }),
     },
   });
@@ -269,7 +295,8 @@ export async function updateUser(values: z.infer<typeof UpdateUserSchema>) {
 }
 
 export async function resetUserPassword(userId: string, newPassword: string) {
-  const { session } = await checkAdmin();
+  const { session, user: actor } = await checkAdmin();
+  if (userId !== actor.id) await assertCanManage(actor.role, userId);
 
   if (newPassword.length < 10 || newPassword.length > 72) {
     throw new Error("Password must be between 10 and 72 characters");
@@ -299,7 +326,8 @@ export async function resetUserPassword(userId: string, newPassword: string) {
 }
 
 export async function deleteUser(userId: string) {
-  const { session } = await checkAdmin();
+  const { session, user: actor } = await checkAdmin();
+  await assertCanManage(actor.role, userId);
 
   if (session.user?.id === userId) {
     throw new Error("Cannot delete your own account");

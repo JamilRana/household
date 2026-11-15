@@ -9,11 +9,13 @@ export default auth((req) => {
 
   const isApiAuthRoute = nextUrl.pathname.startsWith("/api/auth");
   const isCronRoute = nextUrl.pathname.startsWith("/api/cron");
-  const isHealthRoute = nextUrl.pathname === "/api/health";
+  const isHealthRoute = nextUrl.pathname === "/api/health" || nextUrl.pathname === "/api/verify-email";
   const isAuthRoute = ["/login", "/register"].includes(nextUrl.pathname);
+  // Password recovery works whether or not you are signed in
+  const isRecoveryRoute = ["/forgot-password", "/reset-password"].includes(nextUrl.pathname);
 
   // Allow API auth routes, cron endpoints, and health checks
-  if (isApiAuthRoute || isCronRoute || isHealthRoute) return;
+  if (isApiAuthRoute || isCronRoute || isHealthRoute || isRecoveryRoute) return;
 
   // Root path: authenticated -> dashboard, unauthenticated -> login
   if (nextUrl.pathname === "/") {

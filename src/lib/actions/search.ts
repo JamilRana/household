@@ -1,5 +1,6 @@
 "use server";
 
+import { NO_GROUP } from "@/lib/scope";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { getActiveGroupId } from "@/lib/actions/user";
@@ -22,7 +23,7 @@ export async function globalSearch(query: string) {
         list: {
           OR: [
             { ownerId: session.user.id },
-            { groupId: groupId || undefined },
+            { groupId: groupId ?? NO_GROUP },
           ],
         },
       },
@@ -37,7 +38,7 @@ export async function globalSearch(query: string) {
         list: {
           OR: [
             { ownerId: session.user.id },
-            { groupId: groupId || undefined },
+            { groupId: groupId ?? NO_GROUP },
           ],
         },
       },
@@ -51,7 +52,7 @@ export async function globalSearch(query: string) {
         name: { contains: query, mode: "insensitive" },
         OR: [
           { userId: session.user.id },
-          { groupId: groupId || undefined },
+          { groupId: groupId ?? NO_GROUP },
         ],
       },
       take: 5,
@@ -63,7 +64,7 @@ export async function globalSearch(query: string) {
         description: { contains: query, mode: "insensitive" },
         OR: [
           { userId: session.user.id },
-          { groupId: groupId || undefined },
+          { groupId: groupId ?? NO_GROUP },
         ],
       },
       take: 5,

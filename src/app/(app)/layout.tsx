@@ -1,22 +1,37 @@
-import { MainNav } from "@/components/main-nav";
-import { AppHeader } from "@/components/app-header";
-import { BottomNav } from "@/components/bottom-nav";
+import { GalleyTopbar } from "@/components/galley-topbar";
+import { GalleyBottombar } from "@/components/galley-bottombar";
+import { QuickAdd } from "@/components/quick-add";
+import { isAdminRole } from "@/components/nav-items";
+import { auth } from "@/lib/auth";
 
-export default function AppLayout({
+export default async function AppLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
+  const session = await auth();
+  const isAdmin = isAdminRole((session?.user as { role?: string } | undefined)?.role);
+
   return (
-    <div className="flex min-h-screen bg-slate-50/30 dark:bg-slate-950">
-      <MainNav />
-      <div className="flex-1 flex flex-col min-w-0">
-        <AppHeader />
-        <main className="flex-1 overflow-y-auto pb-24 lg:pb-0">
-          {children}
-        </main>
-        <BottomNav />
+    <div className="relative min-h-screen text-foreground font-sans">
+      {/* Galley brushed steel scene with warm overhead heat-lamp glow */}
+      <div className="scene" aria-hidden="true">
+        <i className="scene-sheen" />
       </div>
+
+      {/* Floating glass pill top navigation bar */}
+      <GalleyTopbar isAdmin={isAdmin} user={session?.user} />
+
+      {/* Main Content Arena */}
+      <main className="w-full max-w-[1440px] mx-auto px-3.5 sm:px-6 lg:px-8 py-5 pb-28 md:pb-12 min-h-[calc(100vh-80px)]">
+        {children}
+      </main>
+
+      {/* Mobile Floating Bottom Bar */}
+      <GalleyBottombar isAdmin={isAdmin} />
+
+      {/* Quick Add modal dialog (triggered via '+ New' or 'c') */}
+      <QuickAdd />
     </div>
   );
 }

@@ -1,6 +1,7 @@
 //lib/actions/tasks.ts
 "use server";
 
+import { NO_GROUP, getWritableGroupId, onlyIfMember } from "@/lib/scope";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { getActiveGroupId } from "@/lib/actions/user";
@@ -8,6 +9,33 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { TaskStatus, Priority, Recurrence } from "@prisma/client";
 import { requireGroupAccess } from "@/lib/permissions";
+
+// --- Helpers ---
+
+/** Assignees must be the caller or members of the list's group; anything else is dropped/rejected. */
+async function validateAssignees(listGroupId: string | null, callerId: string, ids?: string[]) {
+  const unique = Array.from(new Set(ids ?? []));
+  if (unique.length === 0) return [];
+  const allowed = new Set<string>([callerId]);
+  if (listGroupId) {
+    const members = await prisma.groupMember.findMany({
+      where: { groupId: listGroupId, userId: { in: unique } },
+      select: { userId: true },
+    });
+    members.forEach((m) => allowed.add(m.userId));
+  }
+  const bad = unique.filter((id) => !allowed.has(id));
+  if (bad.length) throw new Error("Some assignees are not members of this group");
+  return unique;
+}
+
+/** A group id the client sends must be one the caller can write in. */
+async function assertCanUseGroup(userId: string, groupId?: string | null) {
+  if (!groupId) return null;
+  const writable = await getWritableGroupId(userId, groupId);
+  if (!writable) throw new Error("You do not have access to that group");
+  return writable;
+}
 
 // --- Task List Actions ---
 
@@ -22,13 +50,14 @@ export async function createTaskList(values: z.infer<typeof CreateTaskListSchema
   if (!session?.user?.id) throw new Error("Unauthorized");
 
   const validatedFields = CreateTaskListSchema.parse(values);
+  const safeGroupId = await assertCanUseGroup(session.user.id, validatedFields.groupId);
 
   const list = await prisma.taskList.create({
     data: {
       name: validatedFields.name,
       description: validatedFields.description,
       ownerId: session.user.id,
-      groupId: validatedFields.groupId || null,
+      groupId: safeGroupId,
     },
   });
 
@@ -41,13 +70,14 @@ export async function updateTaskList(id: string, values: z.infer<typeof CreateTa
   if (!session?.user?.id) throw new Error("Unauthorized");
 
   const validatedFields = CreateTaskListSchema.parse(values);
+  const safeGroupId = await assertCanUseGroup(session.user.id, validatedFields.groupId);
 
   await prisma.taskList.update({
     where: { id, ownerId: session.user.id },
     data: {
       name: validatedFields.name,
       description: validatedFields.description,
-      groupId: validatedFields.groupId || null,
+      groupId: safeGroupId,
     },
   });
 
@@ -69,14 +99,14 @@ export async function getTaskListById(id: string, groupId?: string | null) {
   const session = await auth();
   if (!session?.user?.id) throw new Error("Unauthorized");
 
-  const activeGroupId = groupId !== undefined ? groupId : await getActiveGroupId(session.user.id);
+  const activeGroupId = groupId !== undefined ? await onlyIfMember(session.user.id, groupId) : await getActiveGroupId(session.user.id);
 
   const list = await prisma.taskList.findFirst({
     where: {
       id,
       OR: [
         { ownerId: session.user.id },
-        { groupId: activeGroupId || undefined },
+        { groupId: activeGroupId ?? NO_GROUP },
         { shares: { some: { userId: session.user.id } } },
       ],
     },
@@ -99,13 +129,13 @@ export async function getTaskLists(groupId?: string | null) {
   const session = await auth();
   if (!session?.user?.id) return [];
 
-  const activeGroupId = groupId !== undefined ? groupId : await getActiveGroupId(session.user.id);
+  const activeGroupId = groupId !== undefined ? await onlyIfMember(session.user.id, groupId) : await getActiveGroupId(session.user.id);
 
   return await prisma.taskList.findMany({
     where: {
       OR: [
         { ownerId: session.user.id },
-        { groupId: activeGroupId || undefined },
+        { groupId: activeGroupId ?? NO_GROUP },
         { shares: { some: { userId: session.user.id } } },
       ],
       isArchived: false,
@@ -141,7 +171,8 @@ export async function createTask(values: z.infer<typeof CreateTaskSchema>) {
   const validatedFields = CreateTaskSchema.parse(values);
 
   // Security: verify user owns the list or is in the same group with at least MEMBER role
-  await requireGroupAccess("TASK_LIST", validatedFields.listId, session.user.id, "MEMBER");
+  const access = await requireGroupAccess("TASK_LIST", validatedFields.listId, session.user.id, "MEMBER");
+  const assignees = await validateAssignees(access.groupId ?? null, session.user.id, validatedFields.assignedUserIds);
 
   const task = await prisma.task.create({
     data: {
@@ -155,9 +186,7 @@ export async function createTask(values: z.infer<typeof CreateTaskSchema>) {
       recurrenceEnd: validatedFields.recurrenceEnd,
       createdBy: session.user.id,
       assignments: {
-        create: validatedFields.assignedUserIds?.map(userId => ({
-          userId
-        }))
+        create: assignees.map(userId => ({ userId })),
       }
     },
   });
@@ -173,21 +202,10 @@ export async function updateTask(taskId: string, values: z.infer<typeof CreateTa
 
   const validatedFields = CreateTaskSchema.parse(values);
 
-  // Security: verify ownership/access
-  const groupId = await getActiveGroupId(session.user.id);
-  const task = await prisma.task.findFirst({
-    where: {
-      id: taskId,
-      OR: [
-        { createdBy: session.user.id },
-        { list: { ownerId: session.user.id } },
-        { list: { groupId: groupId || undefined } },
-        { list: { shares: { some: { userId: session.user.id } } } },
-      ]
-    }
-  });
-
-  if (!task) throw new Error("Task not found or access denied");
+  // Owner, writable group member, or EDITOR/ADMIN share (VIEWERs and GUESTs are rejected)
+  const access = await requireGroupAccess("TASK", taskId, session.user.id, "MEMBER");
+  const task = access.resource;
+  const assignees = await validateAssignees(access.groupId ?? null, session.user.id, validatedFields.assignedUserIds);
 
   await prisma.task.update({
     where: { id: taskId },
@@ -199,9 +217,7 @@ export async function updateTask(taskId: string, values: z.infer<typeof CreateTa
       dueTime: validatedFields.dueTime,
       assignments: {
         deleteMany: {},
-        create: validatedFields.assignedUserIds?.map(userId => ({
-          userId
-        }))
+        create: assignees.map(userId => ({ userId })),
       }
     },
   });
@@ -214,10 +230,8 @@ export async function getGroupMembersByList(listId: string) {
   const session = await auth();
   if (!session?.user?.id) return [];
 
-  const list = await prisma.taskList.findUnique({
-    where: { id: listId },
-    select: { groupId: true }
-  });
+  // Only people who can see the list may see who is in its group
+  const { resource: list } = await requireGroupAccess("TASK_LIST", listId, session.user.id, "GUEST");
 
   if (!list?.groupId) return [];
 
@@ -229,51 +243,51 @@ export async function getGroupMembersByList(listId: string) {
   return members.map(m => m.user);
 }
 
+function nextOccurrence(from: Date, recurrence: string): Date | null {
+  const next = new Date(from);
+  if (recurrence === "DAILY") next.setDate(next.getDate() + 1);
+  else if (recurrence === "WEEKLY") next.setDate(next.getDate() + 7);
+  else if (recurrence === "MONTHLY") {
+    // Pin to month end instead of rolling over (Jan 31 -> Feb 28, not Mar 3)
+    const day = from.getDate();
+    next.setDate(1);
+    next.setMonth(next.getMonth() + 1);
+    const lastDay = new Date(next.getFullYear(), next.getMonth() + 1, 0).getDate();
+    next.setDate(Math.min(day, lastDay));
+  } else {
+    return null; // CUSTOM (and unknown) has no rule yet: never clone a task with the same date
+  }
+  return next;
+}
+
 export async function updateTaskStatus(taskId: string, status: TaskStatus) {
   const session = await auth();
   if (!session?.user?.id) throw new Error("Unauthorized");
+  const userId = session.user.id;
 
-  // Security: verify ownership/access via list membership or shares
-  const groupId = await getActiveGroupId(session.user.id);
+  // Owner, writable group member, or EDITOR/ADMIN share
+  const access = await requireGroupAccess("TASK", taskId, userId, "MEMBER");
+  const task = access.resource;
+  const previousStatus = task.status as TaskStatus;
+  const listGroupId: string | null = access.groupId ?? null;
 
-  await prisma.task.updateMany({
-    where: { 
-      id: taskId,
-      OR: [
-        { createdBy: session.user.id },
-        { list: { ownerId: session.user.id } },
-        { list: { groupId: groupId || undefined } },
-        { list: { shares: { some: { userId: session.user.id } } } },
-      ]
-    },
-    data: { status },
-  });
+  // No-op if nothing changes (double tap) so recurring tasks never spawn twice
+  if (previousStatus === status) return;
 
-  const task = await prisma.task.findUnique({
-    where: { id: taskId },
-  });
+  await prisma.$transaction(async (tx) => {
+    // Conditional update acts as an optimistic lock: only one concurrent caller wins
+    const res = await tx.task.updateMany({
+      where: { id: taskId, status: previousStatus },
+      data: { status, version: { increment: 1 } },
+    });
+    if (res.count === 0) return;
 
-  if (status === "COMPLETED") {
-    if (task?.recurrence && task.recurrence !== "NONE") {
-      const nextDueDate = new Date(task.dueDate || new Date());
+    if (status === "COMPLETED" && previousStatus !== "COMPLETED" && task.recurrence && task.recurrence !== "NONE") {
+      const nextDueDate = nextOccurrence(new Date(task.dueDate || new Date()), task.recurrence);
 
-      if (task.recurrence === "DAILY") {
-        nextDueDate.setDate(nextDueDate.getDate() + 1);
-      } else if (task.recurrence === "WEEKLY") {
-        nextDueDate.setDate(nextDueDate.getDate() + 7);
-      } else if (task.recurrence === "MONTHLY") {
-        nextDueDate.setMonth(nextDueDate.getMonth() + 1);
-      }
-
-      // Check if next occurrence is within the recurrence end date
-      if (!task.recurrenceEnd || nextDueDate <= task.recurrenceEnd) {
-        // Fetch current assignments to copy them
-        const currentTask = await prisma.task.findUnique({
-          where: { id: taskId },
-          include: { assignments: true },
-        });
-
-        const nextTask = await prisma.task.create({
+      if (nextDueDate && (!task.recurrenceEnd || nextDueDate <= task.recurrenceEnd)) {
+        const assignments = await tx.taskAssignment.findMany({ where: { taskId } });
+        await tx.task.create({
           data: {
             listId: task.listId,
             title: task.title,
@@ -285,40 +299,29 @@ export async function updateTaskStatus(taskId: string, status: TaskStatus) {
             recurrenceEnd: task.recurrenceEnd,
             createdBy: task.createdBy,
             status: "NOT_STARTED",
+            assignments: { create: assignments.map((a) => ({ userId: a.userId })) },
           },
         });
-
-        // Copy assignments
-        if (currentTask?.assignments.length) {
-          await prisma.taskAssignment.createMany({
-            data: currentTask.assignments.map((a) => ({
-              taskId: nextTask.id,
-              userId: a.userId,
-            })),
-          });
-        }
       }
     }
+  });
 
-    // Notify group members using TASK_COMPLETED
-    if (groupId) {
-      const members = await prisma.groupMember.findMany({
-        where: {
-          groupId,
-          userId: { not: session.user.id },
-        },
-      });
-
-      const { createNotification } = await import("@/lib/actions/notifications");
-      for (const member of members) {
-        await createNotification(
+  // Notify the task's own group (not whatever group happens to be active in the cookie)
+  if (status === "COMPLETED" && previousStatus !== "COMPLETED" && listGroupId) {
+    const members = await prisma.groupMember.findMany({
+      where: { groupId: listGroupId, userId: { not: userId } },
+    });
+    const { createNotification } = await import("@/lib/actions/notifications");
+    await Promise.all(
+      members.map((member) =>
+        createNotification(
           member.userId,
           "TASK_COMPLETED",
-          "Task Completed",
-          `${session.user.name || "A member"} completed: ${task?.title || "a task"}`
-        );
-      }
-    }
+          "Done",
+          `${session.user?.name || "Someone"} finished "${task.title || "a task"}"`
+        )
+      )
+    );
   }
 
   revalidatePath("/tasks");

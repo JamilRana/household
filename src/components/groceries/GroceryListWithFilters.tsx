@@ -122,7 +122,7 @@ export function GroceryListWithFilters({ initialItems }: GroceryListWithFiltersP
         <div 
           onClick={() => setSelectedCategory(null)}
           className={cn(
-            "px-4 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest shadow-sm transition-colors cursor-pointer border",
+            "px-4 py-1.5 rounded-full text-xs font-semibold shadow-sm transition-colors cursor-pointer border",
             !selectedCategory 
               ? "bg-emerald-600 border-emerald-600 text-white" 
               : "bg-white dark:bg-slate-900 border-slate-100 dark:border-slate-800 text-slate-500 hover:border-emerald-500"
@@ -135,7 +135,7 @@ export function GroceryListWithFilters({ initialItems }: GroceryListWithFiltersP
             key={cat} 
             onClick={() => setSelectedCategory(cat)}
             className={cn(
-              "px-4 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest shadow-sm transition-colors cursor-pointer border",
+              "px-4 py-1.5 rounded-full text-xs font-semibold shadow-sm transition-colors cursor-pointer border",
               selectedCategory === cat 
                 ? "bg-emerald-600 border-emerald-600 text-white" 
                 : "bg-white dark:bg-slate-900 border-slate-100 dark:border-slate-800 text-slate-500 hover:border-emerald-500"
@@ -155,7 +155,7 @@ export function GroceryListWithFilters({ initialItems }: GroceryListWithFiltersP
               variant="ghost"
               onClick={() => setStatusFilter("PENDING")}
               className={cn(
-                "rounded-xl font-black uppercase tracking-widest text-[10px] px-6 h-10 transition-all",
+                "rounded-xl font-semibold text-xs px-6 h-10 transition-all",
                 statusFilter === "PENDING"
                   ? "bg-white dark:bg-slate-900 shadow-sm text-emerald-600"
                   : "text-slate-400 hover:text-slate-600"
@@ -167,7 +167,7 @@ export function GroceryListWithFilters({ initialItems }: GroceryListWithFiltersP
               variant="ghost"
               onClick={() => setStatusFilter("PURCHASED")}
               className={cn(
-                "rounded-xl font-black uppercase tracking-widest text-[10px] px-6 h-10 transition-all",
+                "rounded-xl font-semibold text-xs px-6 h-10 transition-all",
                 statusFilter === "PURCHASED"
                   ? "bg-white dark:bg-slate-900 shadow-sm text-emerald-600"
                   : "text-slate-400 hover:text-slate-600"
@@ -193,7 +193,7 @@ export function GroceryListWithFilters({ initialItems }: GroceryListWithFiltersP
             {statusFilter === "PURCHASED" && (
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
-                  <Button variant="outline" className="h-11 px-5 rounded-2xl border-slate-100 bg-white dark:bg-slate-900 shadow-sm font-black uppercase tracking-widest text-[10px] gap-2 shrink-0 animate-in fade-in slide-in-from-top-1 duration-200">
+                  <Button variant="outline" className="h-11 px-5 rounded-2xl border-slate-100 bg-white dark:bg-slate-900 shadow-sm font-semibold text-xs gap-2 shrink-0 animate-in fade-in slide-in-from-top-1 duration-200">
                     <Calendar className="h-4 w-4" />
                     {selectedMonthLabel}
                   </Button>
@@ -221,7 +221,7 @@ export function GroceryListWithFilters({ initialItems }: GroceryListWithFiltersP
                 />
               ))}
             </div>
-            <div className="bg-slate-50/50 dark:bg-slate-900/10 p-6 rounded-3xl mt-4">
+            <div className="bg-slate-50/50 dark:bg-slate-900/10 p-6 rounded-2xl mt-4">
               <Pagination 
                 currentPage={currentPage}
                 totalPages={totalPages}
@@ -230,12 +230,12 @@ export function GroceryListWithFilters({ initialItems }: GroceryListWithFiltersP
             </div>
           </div>
         ) : (
-          <div className="text-center py-24 border-2 border-dashed border-slate-100 dark:border-slate-800 rounded-[3rem] space-y-4">
+          <div className="text-center py-24 border-2 border-dashed border-slate-100 dark:border-slate-800 rounded-2xl space-y-4">
             <div className="bg-slate-50 dark:bg-slate-900 w-24 h-24 rounded-full flex items-center justify-center mx-auto shadow-inner">
               <ShoppingBasket className="h-10 w-10 text-slate-200" />
             </div>
             <div className="space-y-1">
-              <p className="text-slate-900 dark:text-slate-100 text-xl font-black">
+              <p className="text-slate-900 dark:text-slate-100 text-xl font-semibold">
                 {statusFilter === "PENDING" ? "Shopping list empty" : "No purchase history"}
               </p>
               <p className="text-sm text-slate-400 font-bold">

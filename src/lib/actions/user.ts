@@ -72,7 +72,11 @@ export async function deleteAccount() {
   // Soft delete
   await prisma.user.update({
     where: { id: session.user.id },
-    data: { deletedAt: new Date() },
+    data: {
+      deletedAt: new Date(),
+      isActive: false,
+      sessionVersion: { increment: 1 }, // sign out every device immediately
+    },
   });
 }
 
@@ -165,7 +169,13 @@ export async function setActiveGroup(groupId: string | null) {
 
   const cookieStore = await cookies();
   if (groupId) {
-    cookieStore.set("active_group_id", groupId, { path: "/", maxAge: 60 * 60 * 24 * 365 });
+    cookieStore.set("active_group_id", groupId, {
+      path: "/",
+      maxAge: 60 * 60 * 24 * 365,
+      httpOnly: true,
+      sameSite: "lax",
+      secure: process.env.NODE_ENV === "production",
+    });
   } else {
     cookieStore.delete("active_group_id");
   }

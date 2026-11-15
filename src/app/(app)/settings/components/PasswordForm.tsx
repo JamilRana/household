@@ -44,10 +44,10 @@ export function PasswordForm() {
   };
 
   return (
-    <Card className="border-none shadow-xl bg-white dark:bg-slate-900">
+    <Card className="border-none shadow-md bg-white dark:bg-slate-900">
       <CardContent className="p-6 space-y-5">
         <div className="space-y-2">
-          <Label className="text-xs font-black uppercase tracking-widest text-slate-400">Current Password</Label>
+          <Label className="text-xs font-semibold text-slate-400">Current Password</Label>
           <div className="relative">
             <Input
               type={showPassword ? "text" : "password"}
@@ -66,7 +66,7 @@ export function PasswordForm() {
           </div>
         </div>
         <div className="space-y-2">
-          <Label className="text-xs font-black uppercase tracking-widest text-slate-400">New Password</Label>
+          <Label className="text-xs font-semibold text-slate-400">New Password</Label>
           <Input
             type="password"
             value={newPassword}
@@ -75,7 +75,7 @@ export function PasswordForm() {
           />
         </div>
         <div className="space-y-2">
-          <Label className="text-xs font-black uppercase tracking-widest text-slate-400">Confirm New Password</Label>
+          <Label className="text-xs font-semibold text-slate-400">Confirm New Password</Label>
           <Input
             type="password"
             value={confirmPassword}

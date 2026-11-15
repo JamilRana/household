@@ -1,13 +1,27 @@
 "use client";
 
-import { useState } from "react";
-import { createPantryCategory, deletePantryCategory, updatePantryCategory } from "@/lib/actions/groceries";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { useState, useMemo, useEffect } from "react";
+import { useRouter } from "next/navigation";
+import {
+  createPantryCategory,
+  deletePantryCategory,
+  updatePantryCategory,
+} from "@/lib/actions/groceries";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Edit2, Trash2, Check, X, Plus, ChevronLeft, ChevronRight, Apple } from "lucide-react";
+import {
+  Package,
+  Plus,
+  Trash2,
+  Edit2,
+  Search,
+  X,
+  ChevronLeft,
+  ChevronRight,
+  Lock,
+} from "lucide-react";
 import { cn } from "@/lib/utils";
-import { Pagination } from "@/components/ui/pagination";
+import { toast } from "sonner";
 
 interface PantryCategory {
   id: string;
@@ -20,241 +34,340 @@ interface PantryCategory {
 const PRESET_COLORS = [
   "#10B981", // Emerald
   "#3B82F6", // Blue
-  "#8B5CF6", // Violet
-  "#EC4899", // Pink
-  "#EF4444", // Red
   "#F59E0B", // Amber
+  "#EF4444", // Red
+  "#8B5CF6", // Purple
+  "#EC4899", // Pink
   "#06B6D4", // Cyan
+  "#F97316", // Orange
   "#14B8A6", // Teal
+  "#6366F1", // Indigo
 ];
 
-export function PantryCategorySettings({ initialCategories }: { initialCategories: PantryCategory[] }) {
+export function PantryCategorySettings({
+  initialCategories,
+}: {
+  initialCategories: PantryCategory[];
+}) {
+  const router = useRouter();
   const [categories, setCategories] = useState<PantryCategory[]>(initialCategories);
-  
-  // Pagination State
+
+  // Search & Pagination state
+  const [search, setSearch] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
-  const itemsPerPage = 5;
+  const itemsPerPage = 6;
 
-  // Edit State
+  // Form state
+  const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [editName, setEditName] = useState("");
-  const [editColor, setEditColor] = useState("");
+  const [name, setName] = useState("");
+  const [color, setColor] = useState(PRESET_COLORS[0]);
+  const [loading, setLoading] = useState(false);
 
-  // Create State
-  const [newName, setNewName] = useState("");
-  const [newColor, setNewColor] = useState(PRESET_COLORS[0]);
+  useEffect(() => {
+    setCategories(initialCategories);
+  }, [initialCategories]);
 
-  // Calculations for pagination
-  const totalPages = Math.ceil(categories.length / itemsPerPage);
-  const startIndex = (currentPage - 1) * itemsPerPage;
-  const paginatedCategories = categories.slice(startIndex, startIndex + itemsPerPage);
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [search]);
 
-  const handleCreate = async () => {
-    if (!newName.trim()) return;
-    const category = await createPantryCategory({
-      name: newName,
-      color: newColor,
+  // Filtered categories
+  const filteredCategories = useMemo(() => {
+    return categories.filter((cat) => {
+      return (
+        !search.trim() || cat.name.toLowerCase().includes(search.toLowerCase().trim())
+      );
     });
-    setCategories(prev => [...prev, category as PantryCategory].sort((a, b) => a.name.localeCompare(b.name)));
-    setNewName("");
-  };
+  }, [categories, search]);
 
-  const handleRename = async (id: string) => {
-    if (!editName.trim()) return;
-    setCategories(prev => prev.map(c => c.id === id ? { ...c, name: editName, color: editColor } : c));
+  const totalPages = Math.max(1, Math.ceil(filteredCategories.length / itemsPerPage));
+  const paginatedCategories = useMemo(() => {
+    const start = (currentPage - 1) * itemsPerPage;
+    return filteredCategories.slice(start, start + itemsPerPage);
+  }, [filteredCategories, currentPage, itemsPerPage]);
+
+  const handleStartCreate = () => {
     setEditingId(null);
-    await updatePantryCategory(id, { name: editName, color: editColor });
+    setName("");
+    setColor(PRESET_COLORS[0]);
+    setShowForm(true);
   };
 
-  const handleDelete = async (id: string) => {
-    setCategories(prev => prev.filter(c => c.id !== id));
-    // Reset page if it becomes empty
-    const remainingCount = categories.length - 1;
-    const maxPage = Math.ceil(remainingCount / itemsPerPage) || 1;
-    if (currentPage > maxPage) {
-      setCurrentPage(maxPage);
+  const handleStartEdit = (cat: PantryCategory) => {
+    setEditingId(cat.id);
+    setName(cat.name);
+    setColor(cat.color || PRESET_COLORS[0]);
+    setShowForm(true);
+  };
+
+  const handleCancelForm = () => {
+    setShowForm(false);
+    setEditingId(null);
+    setName("");
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!name.trim()) return;
+
+    setLoading(true);
+    try {
+      if (editingId) {
+        await updatePantryCategory(editingId, {
+          name: name.trim(),
+          color,
+        });
+        setCategories((prev) =>
+          prev.map((c) =>
+            c.id === editingId
+              ? { ...c, name: name.trim(), color }
+              : c
+          )
+        );
+        toast.success("Category updated");
+      } else {
+        const created = await createPantryCategory({
+          name: name.trim(),
+          color,
+        });
+        setCategories((prev) => [created as PantryCategory, ...prev]);
+        toast.success("Pantry category created");
+      }
+      handleCancelForm();
+      router.refresh();
+    } catch (error: any) {
+      console.error(error);
+      toast.error(error.message || "Failed to save category");
+    } finally {
+      setLoading(false);
     }
-    await deletePantryCategory(id);
+  };
+
+  const handleDelete = async (id: string, catName: string) => {
+    try {
+      await deletePantryCategory(id);
+      setCategories((prev) => prev.filter((c) => c.id !== id));
+      toast.success(`Deleted "${catName}"`);
+      router.refresh();
+    } catch (error: any) {
+      console.error(error);
+      toast.error(error.message || "Failed to delete category");
+    }
   };
 
   return (
-    <Card className="border-none shadow-md bg-white dark:bg-slate-900 overflow-hidden rounded-[2rem]">
-      <CardHeader className="p-8 border-b border-slate-50 dark:border-slate-800 flex flex-row items-center justify-between">
+    <div className="rounded-xl border border-border bg-card p-5 sm:p-6 shadow-2xs space-y-4">
+      {/* Header */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-border/70">
         <div>
-          <CardTitle className="text-2xl font-black flex items-center gap-2">
-            <Apple className="h-5 w-5 text-amber-500" /> Pantry Categories
-          </CardTitle>
-          <p className="text-xs text-muted-foreground font-bold mt-1">Configure your custom and system default pantry categories.</p>
-        </div>
-      </CardHeader>
-      <CardContent className="p-8 space-y-6">
-        
-        {/* Create Form */}
-        <div className="p-6 rounded-3xl bg-slate-50 dark:bg-slate-955 border border-slate-100 dark:border-slate-850 space-y-4">
-          <h4 className="text-[10px] font-black uppercase tracking-widest text-slate-400">Add New Pantry Category</h4>
-          <div className="flex flex-col sm:flex-row gap-3">
-            <Input 
-              placeholder="e.g. Produce, Snacks, Bakery..." 
-              value={newName}
-              onChange={(e) => setNewName(e.target.value)}
-              className="h-11 rounded-xl bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 font-bold"
-            />
-            <Button 
-              onClick={handleCreate}
-              className="h-11 px-6 bg-amber-600 hover:bg-amber-700 text-white rounded-xl font-bold gap-2 self-stretch sm:self-auto shrink-0 animate-in fade-in zoom-in-95 duration-200"
-            >
-              <Plus className="h-4 w-4" /> Add Category
-            </Button>
-          </div>
-          {/* Preset Colors */}
-          <div className="flex flex-wrap gap-2 items-center">
-            <span className="text-[9px] font-black uppercase tracking-widest text-slate-400 mr-2">Color Tag:</span>
-            {PRESET_COLORS.map(color => (
-              <button
-                key={color}
-                onClick={() => setNewColor(color)}
-                style={{ backgroundColor: color }}
-                className={cn(
-                  "h-6 w-6 rounded-full border-2 transition-transform duration-200",
-                  newColor === color ? "border-slate-900 dark:border-white scale-125 shadow-md" : "border-transparent hover:scale-110"
-                )}
-              />
-            ))}
-          </div>
+          <h2 className="text-sm font-semibold text-foreground flex items-center gap-2">
+            <Package className="size-4 text-primary" /> Pantry Categories
+          </h2>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            Organize pantry and grocery storage inventory sections.
+          </p>
         </div>
 
-        {/* Table View */}
-        <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse">
-            <thead>
-              <tr className="border-b border-slate-100 dark:border-slate-800 text-[10px] font-black uppercase tracking-widest text-slate-400">
-                <th className="pb-4 pl-4 w-20">Tag</th>
-                <th className="pb-4">Category Name</th>
-                <th className="pb-4 w-32">Source</th>
-                <th className="pb-4 pr-4 w-24 text-right">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {paginatedCategories.map((cat) => (
-                <tr 
-                  key={cat.id} 
-                  className="border-b border-slate-50 dark:border-slate-800/50 hover:bg-slate-50/50 dark:hover:bg-slate-850/10 transition-colors"
-                >
-                  {/* Tag Color Column */}
-                  <td className="py-4 pl-4">
-                    {editingId === cat.id ? (
-                      <div className="flex gap-1.5">
-                        {PRESET_COLORS.slice(0, 4).map(color => (
-                          <button
-                            key={color}
-                            onClick={() => setEditColor(color)}
-                            style={{ backgroundColor: color }}
-                            className={cn(
-                              "h-4 w-4 rounded-full border transition-transform",
-                              editColor === color ? "border-slate-900 dark:border-white scale-110" : "border-transparent"
-                            )}
-                          />
-                        ))}
-                      </div>
-                    ) : (
-                      <div className="h-5 w-5 rounded-full shadow-inner" style={{ backgroundColor: cat.color }} />
-                    )}
-                  </td>
-
-                  {/* Name Column */}
-                  <td className="py-4 font-bold text-slate-800 dark:text-slate-200">
-                    {editingId === cat.id ? (
-                      <Input 
-                        value={editName}
-                        onChange={(e) => setEditName(e.target.value)}
-                        className="h-8 max-w-xs font-bold rounded-lg bg-white dark:bg-slate-900"
-                      />
-                    ) : (
-                      cat.name
-                    )}
-                  </td>
-
-                  {/* Source Column */}
-                  <td className="py-4">
-                    {cat.isSystem ? (
-                      <span className="text-[9px] font-black px-2.5 py-1 rounded-full bg-slate-100 dark:bg-slate-855 text-slate-400 uppercase tracking-widest">
-                        System Default
-                      </span>
-                    ) : (
-                      <span className="text-[9px] font-black px-2.5 py-1 rounded-full bg-amber-50 dark:bg-amber-950/20 text-amber-600 uppercase tracking-widest">
-                        Custom
-                      </span>
-                    )}
-                  </td>
-
-                  {/* Actions Column */}
-                  <td className="py-4 pr-4 text-right">
-                    {editingId === cat.id ? (
-                      <div className="flex items-center justify-end gap-1.5">
-                        <Button 
-                          size="icon" 
-                          className="h-8 w-8 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg"
-                          onClick={() => handleRename(cat.id)}
-                        >
-                          <Check className="h-4 w-4" />
-                        </Button>
-                        <Button 
-                          size="icon" 
-                          variant="ghost"
-                          className="h-8 w-8 text-slate-400 hover:text-slate-600 rounded-lg"
-                          onClick={() => setEditingId(null)}
-                        >
-                          <X className="h-4 w-4" />
-                        </Button>
-                      </div>
-                    ) : (
-                      <div className="flex items-center justify-end gap-1">
-                        <Button 
-                          variant="ghost" 
-                          size="icon" 
-                          className="h-8 w-8 text-slate-400 hover:text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-950/20 rounded-lg"
-                          onClick={() => {
-                            setEditingId(cat.id);
-                            setEditName(cat.name);
-                            setEditColor(cat.color);
-                          }}
-                        >
-                          <Edit2 className="h-3.5 w-3.5" />
-                        </Button>
-                        <Button 
-                          variant="ghost" 
-                          size="icon" 
-                          className="h-8 w-8 text-slate-400 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/20 rounded-lg"
-                          onClick={() => handleDelete(cat.id)}
-                        >
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </Button>
-                      </div>
-                    )}
-                  </td>
-                </tr>
-              ))}
-              {categories.length === 0 && (
-                <tr>
-                  <td colSpan={4} className="py-8 text-center text-slate-400 italic">No categories created yet.</td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-
-        {/* Pagination Section */}
-        {totalPages > 1 && (
-          <div className="pt-2">
-            <Pagination 
-              currentPage={currentPage}
-              totalPages={totalPages}
-              onPageChange={setCurrentPage}
-            />
-          </div>
+        {!showForm && (
+          <Button
+            onClick={handleStartCreate}
+            size="sm"
+            className="h-8 text-xs font-medium gap-1.5 self-start sm:self-auto"
+          >
+            <Plus className="size-3.5" />
+            <span>Add Category</span>
+          </Button>
         )}
+      </div>
 
-      </CardContent>
-    </Card>
+      {/* Expandable Form */}
+      {showForm && (
+        <form
+          onSubmit={handleSubmit}
+          className="p-3.5 rounded-lg border border-border bg-muted/40 space-y-3 animate-in fade-in-50 duration-150"
+        >
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-semibold text-foreground">
+              {editingId ? "Edit Pantry Category" : "New Pantry Category"}
+            </span>
+            <button
+              type="button"
+              onClick={handleCancelForm}
+              className="text-muted-foreground hover:text-foreground text-xs"
+            >
+              <X className="size-3.5" />
+            </button>
+          </div>
+
+          <div>
+            <Input
+              placeholder="e.g. Produce, Dairy, Spices..."
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              className="h-9 text-xs"
+              autoFocus
+              required
+            />
+          </div>
+
+          <div className="flex flex-wrap items-center justify-between gap-2 pt-1 border-t border-border/60">
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <span className="text-xs text-muted-foreground mr-1">Color:</span>
+              {PRESET_COLORS.map((c) => (
+                <button
+                  key={c}
+                  type="button"
+                  onClick={() => setColor(c)}
+                  className={cn(
+                    "size-5 rounded-full transition-transform",
+                    color === c
+                      ? "ring-2 ring-primary ring-offset-2 scale-110"
+                      : "opacity-80 hover:opacity-100"
+                  )}
+                  style={{ backgroundColor: c }}
+                  aria-label={`Select color ${c}`}
+                />
+              ))}
+            </div>
+
+            <div className="flex items-center gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={handleCancelForm}
+                className="h-8 text-xs"
+              >
+                Cancel
+              </Button>
+              <Button
+                type="submit"
+                disabled={loading || !name.trim()}
+                size="sm"
+                className="h-8 text-xs font-medium"
+              >
+                {loading ? "Saving..." : editingId ? "Save Changes" : "Create"}
+              </Button>
+            </div>
+          </div>
+        </form>
+      )}
+
+      {/* Search Input */}
+      <div className="relative">
+        <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 size-3.5 text-muted-foreground" />
+        <Input
+          placeholder="Search pantry categories..."
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          className="h-8 pl-8 pr-7 text-xs"
+        />
+        {search && (
+          <button
+            type="button"
+            onClick={() => setSearch("")}
+            className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+          >
+            <X className="size-3.5" />
+          </button>
+        )}
+      </div>
+
+      {/* Category List */}
+      <div className="space-y-1.5 min-h-[200px]">
+        {paginatedCategories.length === 0 ? (
+          <div className="py-10 text-center space-y-1 text-xs text-muted-foreground">
+            <p className="font-medium text-foreground">No pantry categories found</p>
+            <p className="text-[11px]">
+              {search
+                ? "Try searching with different keywords."
+                : "Add your first custom pantry category above."}
+            </p>
+          </div>
+        ) : (
+          paginatedCategories.map((cat) => (
+            <div
+              key={cat.id}
+              className="flex items-center justify-between px-3 py-2 rounded-lg border border-border/60 bg-muted/20 hover:bg-muted/40 transition-colors group"
+            >
+              <div className="flex items-center gap-2.5 min-w-0">
+                <div
+                  className="size-2.5 rounded-full shrink-0 shadow-2xs"
+                  style={{ backgroundColor: cat.color }}
+                />
+                <span className="text-xs font-medium text-foreground truncate">{cat.name}</span>
+                {cat.isSystem && (
+                  <span className="inline-flex items-center gap-0.5 text-[9px] font-medium text-muted-foreground px-1.5 py-0.5 rounded bg-muted shrink-0">
+                    <Lock className="size-2.5 opacity-60" />
+                    Default
+                  </span>
+                )}
+              </div>
+
+              <div className="flex items-center gap-1">
+                <Button
+                  variant="ghost"
+                  size="icon-xs"
+                  className="size-7 text-muted-foreground hover:text-foreground"
+                  onClick={() => handleStartEdit(cat)}
+                  title={`Edit ${cat.name}`}
+                  aria-label={`Edit ${cat.name}`}
+                >
+                  <Edit2 className="size-3" />
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="icon-xs"
+                  className="size-7 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
+                  onClick={() => handleDelete(cat.id, cat.name)}
+                  title={`Delete ${cat.name}`}
+                  aria-label={`Delete ${cat.name}`}
+                >
+                  <Trash2 className="size-3" />
+                </Button>
+              </div>
+            </div>
+          ))
+        )}
+      </div>
+
+      {/* Pagination Controls */}
+      <div className="pt-2 border-t border-border flex items-center justify-between text-xs text-muted-foreground">
+        <span>
+          Showing {filteredCategories.length === 0 ? 0 : (currentPage - 1) * itemsPerPage + 1}–
+          {Math.min(currentPage * itemsPerPage, filteredCategories.length)} of{" "}
+          {filteredCategories.length}
+        </span>
+
+        <div className="flex items-center gap-1.5">
+          <Button
+            variant="outline"
+            size="icon-xs"
+            className="size-7"
+            disabled={currentPage <= 1}
+            onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+            title="Previous page"
+            aria-label="Previous page"
+          >
+            <ChevronLeft className="size-3.5" />
+          </Button>
+          <span className="px-1 font-medium text-foreground text-xs">
+            {currentPage} / {totalPages}
+          </span>
+          <Button
+            variant="outline"
+            size="icon-xs"
+            className="size-7"
+            disabled={currentPage >= totalPages}
+            onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+            title="Next page"
+            aria-label="Next page"
+          >
+            <ChevronRight className="size-3.5" />
+          </Button>
+        </div>
+      </div>
+    </div>
   );
 }

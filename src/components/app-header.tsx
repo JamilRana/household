@@ -120,7 +120,7 @@ export function AppHeader() {
               Object.entries(searchResults).map(([category, items]: [string, any]) => (
                 items.length > 0 && (
                   <div key={category} className="py-2 first:pt-0 last:pb-0">
-                    <p className="px-2 py-1 text-[11px] font-semibold text-muted-foreground capitalize">{category}</p>
+                    <p className="px-2 py-1 text-xs font-semibold text-muted-foreground capitalize">{category}</p>
                     {items.map((item: any) => (
                       <Link 
                         key={item.id}
@@ -200,7 +200,7 @@ export function AppHeader() {
                     className={`p-3 cursor-pointer hover:bg-muted/50 transition-colors ${!n.isRead ? "bg-muted/20 font-medium" : "text-muted-foreground"}`}
                   >
                     <p className="text-foreground">{n.title || n.message}</p>
-                    <time className="text-[10px] text-muted-foreground mt-1 block">
+                    <time className="text-xs text-muted-foreground mt-1 block">
                       {n.createdAt ? formatDistanceToNow(new Date(n.createdAt), { addSuffix: true }) : ""}
                     </time>
                   </div>
@@ -216,7 +216,7 @@ export function AppHeader() {
                     setNotifications([]);
                     setUnreadCount(0);
                   }}
-                  className="text-[11px] text-muted-foreground hover:text-destructive transition-colors"
+                  className="text-xs text-muted-foreground hover:text-destructive transition-colors"
                 >
                   Clear all notifications
                 </button>

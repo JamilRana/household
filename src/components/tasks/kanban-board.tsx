@@ -145,7 +145,7 @@ export function KanbanBoard({ initialTasks }: KanbanBoardProps) {
         }),
       }}>
         {activeTask ? (
-          <div className="w-[300px] rotate-3 cursor-grabbing">
+          <div className="w-[300px] cursor-grabbing">
             <TaskCard task={activeTask} />
           </div>
         ) : null}

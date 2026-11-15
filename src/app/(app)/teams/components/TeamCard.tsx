@@ -1,5 +1,7 @@
 "use client";
 
+import { toast } from "sonner";
+import { useConfirm } from "@/components/confirm-provider";
 import { useState } from "react";
 import { 
   renameGroup, 
@@ -41,6 +43,7 @@ import { AddMemberModal } from "./AddMemberModal";
 import { EditTeamModal } from "./EditTeamModal";
 
 export function TeamCard({ team, allUsers }: { team: any; allUsers: any[] }) {
+  const confirm = useConfirm();
   const [isUpdatingRole, setIsUpdatingRole] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [leaving, setLeaving] = useState(false);
@@ -53,69 +56,69 @@ export function TeamCard({ team, allUsers }: { team: any; allUsers: any[] }) {
     try {
       await updateMemberRole(team.id, memberId, role);
     } catch (error) {
-      alert(error instanceof Error ? error.message : "Failed to update role");
+      toast.error(error instanceof Error ? error.message : "Failed to update role");
     } finally {
       setIsUpdatingRole(null);
     }
   };
 
   const handleTransferOwnership = async (memberId: string) => {
-    if (!confirm("Are you sure you want to transfer ownership? You will be demoted to ADMIN.")) return;
+    if (!(await confirm({ title: "Transfer ownership?", description: "You will become an admin and the new owner will be in charge of this group.", confirmLabel: "Transfer" }))) return;
     try {
       await transferOwnership(team.id, memberId);
     } catch (error) {
-      alert(error instanceof Error ? error.message : "Failed to transfer");
+      toast.error(error instanceof Error ? error.message : "Failed to transfer");
     }
   };
 
   const handleRemoveMember = async (memberId: string) => {
-    if (!confirm("Are you sure you want to remove this member?")) return;
+    if (!(await confirm({ title: "Remove this member?", description: "They will lose access to everything shared in this group.", confirmLabel: "Remove", destructive: true }))) return;
     try {
       await removeMember(team.id, memberId);
     } catch (error) {
-      alert(error instanceof Error ? error.message : "Failed to remove member");
+      toast.error(error instanceof Error ? error.message : "Failed to remove member");
     }
   };
 
   const handleDelete = async () => {
-    if (!confirm("CRITICAL: Delete this team and all associated data?")) return;
+    if (!(await confirm({ title: "Delete this group?", description: "Everything shared in it will be deleted too. This cannot be undone.", confirmLabel: "Delete group", destructive: true }))) return;
     setDeleting(true);
     try {
       await deleteGroup(team.id);
     } catch (error) {
-      alert(error instanceof Error ? error.message : "Failed to delete");
+      toast.error(error instanceof Error ? error.message : "Failed to delete");
     } finally {
       setDeleting(false);
     }
   };
 
   const handleLeave = async () => {
-    if (!confirm("Leave this team?")) return;
+    if (!(await confirm({ title: "Leave this group?", confirmLabel: "Leave", destructive: true }))) return;
     setLeaving(true);
     try {
       await leaveGroup(team.id);
     } catch (error) {
-      alert(error instanceof Error ? error.message : "Failed to leave");
+      toast.error(error instanceof Error ? error.message : "Failed to leave");
     } finally {
       setLeaving(false);
     }
   };
 
   return (
-    <Card className="border-none shadow-2xl bg-white dark:bg-slate-900 rounded-[2.5rem] overflow-hidden group">
+    <Card className="border-none shadow-md bg-white dark:bg-slate-900 rounded-2xl overflow-hidden group">
       <CardContent className="p-0">
         {/* Team Header */}
-        <div className="p-8 bg-gradient-to-br from-slate-50 to-indigo-50/30 dark:from-slate-800/50 dark:to-indigo-950/20 border-b border-slate-100 dark:border-slate-800 relative">
+        <div className="p-8 bg-muted/40 border-b border-slate-100 dark:border-slate-800 relative">
           <div className="flex items-start justify-between gap-4">
             <div className="flex items-center gap-5">
-              <div className="bg-white dark:bg-slate-950 w-20 h-20 rounded-3xl flex items-center justify-center text-3xl shadow-xl shadow-indigo-100 dark:shadow-none border border-slate-100 dark:border-slate-800 group-hover:scale-110 transition-transform duration-500">
+              <div className="bg-white dark:bg-slate-950 w-20 h-20 rounded-2xl flex items-center justify-center text-3xl shadow-sm border border-slate-100 dark:border-slate-800 group-hover:scale-110 transition-transform duration-500">
                 {team.icon || "👥"}
               </div>
               <div className="space-y-1">
-                <h3 className="text-2xl font-black tracking-tight">{team.name}</h3>
+                <h3 className="text-2xl font-semibold tracking-tight">{team.name}</h3>
                 <div className="flex items-center gap-3">
                   <Badge className={cn(
-                    "font-black text-[10px] uppercase tracking-widest px-2.5 py-1 rounded-lg border-none shadow-sm",
+                    "font-semibold text-xs px-2.5 py-1 rounded-lg border-none shadow-sm",
                     isOwner ? "bg-amber-100 text-amber-700" : "bg-indigo-100 text-indigo-700"
                   )}>
                     {team.role}
@@ -132,13 +135,13 @@ export function TeamCard({ team, allUsers }: { team: any; allUsers: any[] }) {
               {isAdmin && <EditTeamModal team={team} />}
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
-                  <Button variant="ghost" size="icon" className="rounded-2xl h-11 w-11 bg-white/50 dark:bg-slate-950/50 hover:bg-white dark:hover:bg-slate-950 shadow-sm border border-slate-100 dark:border-slate-800">
+                  <Button variant="ghost" size="icon" className="rounded-2xl h-11 w-11 bg-white/50 dark:bg-slate-950/50 hover:bg-white dark:hover:bg-slate-950 shadow-sm border border-slate-100 dark:border-slate-800" aria-label="More options">
                     <MoreHorizontal className="h-5 w-5" />
                   </Button>
                 </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="w-56 p-2 rounded-[1.5rem] shadow-2xl border-slate-100 dark:border-slate-800">
+                <DropdownMenuContent align="end" className="w-56 p-2 rounded-2xl shadow-md border-slate-100 dark:border-slate-800">
                   <DropdownMenuGroup>
-                    <DropdownMenuLabel className="text-[10px] font-black uppercase tracking-widest text-slate-400 px-4 py-3">Team Actions</DropdownMenuLabel>
+                    <DropdownMenuLabel className="text-xs font-semibold text-slate-400 px-4 py-3">Team Actions</DropdownMenuLabel>
                     {isOwner ? (
                       <DropdownMenuItem 
                         onClick={handleDelete}
@@ -173,7 +176,7 @@ export function TeamCard({ team, allUsers }: { team: any; allUsers: any[] }) {
         {/* Members Section */}
         <div className="p-8 space-y-6">
           <div className="flex items-center justify-between">
-            <h4 className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 flex items-center gap-2">
+            <h4 className="text-xs font-semibold text-slate-400 flex items-center gap-2">
               <Users className="h-4 w-4" /> Team Members
             </h4>
             {isAdmin && <AddMemberModal teamId={team.id} allUsers={allUsers} existingMembers={team.members} />}
@@ -181,30 +184,30 @@ export function TeamCard({ team, allUsers }: { team: any; allUsers: any[] }) {
 
           <div className="grid gap-3">
             {team.members.map((member: any) => (
-              <div key={member.id} className="flex items-center justify-between p-4 rounded-3xl bg-slate-50/50 dark:bg-slate-800/30 hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-all border border-transparent hover:border-slate-100 dark:hover:border-slate-700 group/member">
+              <div key={member.id} className="flex items-center justify-between p-4 rounded-2xl bg-slate-50/50 dark:bg-slate-800/30 hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-all border border-transparent hover:border-slate-100 dark:hover:border-slate-700 group/member">
                 <div className="flex items-center gap-4">
                   <div className="relative">
                     <Avatar className="h-12 w-12 border-2 border-white dark:border-slate-800 shadow-md">
                       <AvatarImage src={member.image || ""} />
-                      <AvatarFallback className="bg-indigo-600 text-white font-black">
+                      <AvatarFallback className="bg-indigo-600 text-white font-semibold">
                         {member.name?.[0] || member.email?.[0]}
                       </AvatarFallback>
                     </Avatar>
                     {member.role === "OWNER" && (
-                      <div className="absolute -top-1 -right-1 bg-amber-400 text-white p-1 rounded-full shadow-lg border-2 border-white dark:border-slate-900">
+                      <div className="absolute -top-1 -right-1 bg-amber-400 text-white p-1 rounded-full shadow-md border-2 border-white dark:border-slate-900">
                         <Crown className="h-2.5 w-2.5" />
                       </div>
                     )}
                   </div>
                   <div>
-                    <p className="font-black text-slate-900 dark:text-white leading-tight">{member.name || "Anonymous User"}</p>
-                    <p className="text-[11px] text-slate-400 font-bold uppercase tracking-tight mt-0.5">{member.email}</p>
+                    <p className="font-semibold text-slate-900 dark:text-white leading-tight">{member.name || "Anonymous User"}</p>
+                    <p className="text-xs text-slate-400 font-bold tracking-tight mt-0.5">{member.email}</p>
                   </div>
                 </div>
 
                 <div className="flex items-center gap-4">
                   <Badge variant="outline" className={cn(
-                    "border-none font-black text-[9px] uppercase tracking-widest px-3 py-1 rounded-full",
+                    "border-none font-semibold text-xs px-3 py-1 rounded-full",
                     member.role === "OWNER" ? "bg-amber-100 text-amber-700" :
                     member.role === "ADMIN" ? "bg-violet-100 text-violet-700" :
                     "bg-slate-200 text-slate-600 dark:bg-slate-700 dark:text-slate-400"
@@ -215,13 +218,13 @@ export function TeamCard({ team, allUsers }: { team: any; allUsers: any[] }) {
                   {isAdmin && member.role !== "OWNER" && (
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
-                        <Button variant="ghost" size="icon" className="h-9 w-9 rounded-xl opacity-0 group-hover/member:opacity-100 transition-opacity" disabled={isUpdatingRole === member.id}>
+                        <Button variant="ghost" size="icon" className="h-9 w-9 rounded-xl opacity-0 group-hover/member:opacity-100 transition-opacity" disabled={isUpdatingRole === member.id} aria-label="More options">
                           {isUpdatingRole === member.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <MoreVertical className="h-4 w-4" />}
                         </Button>
                       </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end" className="w-56 p-2 rounded-2xl shadow-2xl border-slate-100 dark:border-slate-800">
+                      <DropdownMenuContent align="end" className="w-56 p-2 rounded-2xl shadow-md border-slate-100 dark:border-slate-800">
                         <DropdownMenuGroup>
-                          <DropdownMenuLabel className="text-[10px] font-black uppercase tracking-widest text-slate-400 px-4 py-2">Manage Member</DropdownMenuLabel>
+                          <DropdownMenuLabel className="text-xs font-semibold text-slate-400 px-4 py-2">Manage Member</DropdownMenuLabel>
                           <DropdownMenuItem onClick={() => handleUpdateRole(member.id, "ADMIN")} className="rounded-xl px-4 py-2.5 cursor-pointer">
                             <ShieldCheck className="h-4 w-4 mr-3 text-indigo-600" />
                             <span className="font-bold">Make Admin</span>
@@ -259,7 +262,7 @@ export function TeamCard({ team, allUsers }: { team: any; allUsers: any[] }) {
 
         {/* Footer */}
         <div className="px-8 py-6 bg-slate-50/50 dark:bg-slate-900/50 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between">
-          <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-slate-400">
+          <div className="flex items-center gap-2 text-xs font-semibold text-slate-400">
             <Calendar className="h-3.5 w-3.5" />
             Created {format(new Date(team.createdAt), "MMM d, yyyy")}
           </div>
@@ -267,13 +270,13 @@ export function TeamCard({ team, allUsers }: { team: any; allUsers: any[] }) {
             {team.members.slice(0, 5).map((m: any) => (
               <Avatar key={m.id} className="h-8 w-8 border-2 border-white dark:border-slate-900">
                 <AvatarImage src={m.image || ""} />
-                <AvatarFallback className="bg-indigo-100 text-indigo-600 text-[10px] font-black">
+                <AvatarFallback className="bg-indigo-100 text-indigo-600 text-xs font-semibold">
                   {m.name?.[0]}
                 </AvatarFallback>
               </Avatar>
             ))}
             {team.memberCount > 5 && (
-              <div className="h-8 w-8 rounded-full bg-slate-100 dark:bg-slate-800 border-2 border-white dark:border-slate-900 flex items-center justify-center text-[10px] font-black text-slate-500">
+              <div className="h-8 w-8 rounded-full bg-slate-100 dark:bg-slate-800 border-2 border-white dark:border-slate-900 flex items-center justify-center text-xs font-semibold text-slate-500">
                 +{team.memberCount - 5}
               </div>
             )}

@@ -77,6 +77,7 @@ const mockPrisma: any = {
     deleteMany: vi.fn(),
   },
   taskAssignment: {
+    findMany: vi.fn().mockResolvedValue([]),
     create: vi.fn(),
     createMany: vi.fn(),
     deleteMany: vi.fn(),
@@ -178,6 +179,11 @@ const mockPrisma: any = {
     updateMany: vi.fn(),
     deleteMany: vi.fn(),
     findMany: vi.fn(),
+  },
+  rateLimit: {
+    updateMany: vi.fn(),
+    upsert: vi.fn(),
+    deleteMany: vi.fn(),
   },
   share: {
     findFirst: vi.fn(),

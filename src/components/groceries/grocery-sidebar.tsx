@@ -23,7 +23,7 @@ export function GrocerySidebar({ lists, isMobile }: GrocerySidebarProps) {
         : "w-64 border-r bg-emerald-50/50 dark:bg-slate-900/50 h-[calc(100vh-64px)] shrink-0"
     )}>
       <div className="flex items-center justify-between px-2">
-        <h2 className="font-semibold text-sm uppercase tracking-wider text-muted-foreground">My Lists</h2>
+        <h2 className="font-semibold text-sm text-muted-foreground">My Lists</h2>
         <AddGroceryListModal />
       </div>
 
@@ -49,7 +49,7 @@ export function GrocerySidebar({ lists, isMobile }: GrocerySidebarProps) {
                 <span className="truncate max-w-[120px]">{list.name}</span>
               </div>
               {list._count?.items > 0 && (
-                <span className="bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300 text-[10px] px-1.5 py-0.5 rounded-full font-bold">
+                <span className="bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300 text-xs px-1.5 py-0.5 rounded-full font-bold">
                   {list._count.items}
                 </span>
               )}

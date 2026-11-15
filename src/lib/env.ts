@@ -11,6 +11,9 @@ const envSchema = z.object({
   CRON_SECRET: z.string().min(16, "CRON_SECRET must be at least 16 characters for background job authentication"),
   AUTH_GOOGLE_ID: z.string().optional(),
   AUTH_GOOGLE_SECRET: z.string().optional(),
+  RESEND_API_KEY: z.string().optional(),
+  MAIL_FROM: z.string().optional(),
+  REQUIRE_EMAIL_VERIFICATION: z.enum(["true", "false"]).optional(),
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
 });
 

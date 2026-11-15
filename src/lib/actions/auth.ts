@@ -7,6 +7,9 @@ import { prisma } from "@/lib/db";
 import { RegisterSchema, LoginSchema, ResetPasswordSchema, ForgotPasswordSchema } from "@/lib/validations/auth";
 import { signIn } from "@/lib/auth";
 import { AuthError } from "next-auth";
+import { headers } from "next/headers";
+import { rateLimit, clientIp } from "@/lib/rate-limit";
+import { sendMail, appUrl } from "@/lib/mail";
 
 export async function registerUser(values: z.infer<typeof RegisterSchema>) {
   const validatedFields = RegisterSchema.safeParse(values);
@@ -17,6 +20,13 @@ export async function registerUser(values: z.infer<typeof RegisterSchema>) {
 
   const { email, password, name } = validatedFields.data;
   const normalizedEmail = email.toLowerCase();
+
+  const ip = clientIp(await headers());
+  const limited = await rateLimit(`register-ip:${ip}`, 10, 60 * 60 * 1000);
+  if (!limited.ok) {
+    return { error: `Too many sign-ups from this network. Try again in ${Math.ceil(limited.retryAfterSec / 60)} min.` };
+  }
+
   const hashedPassword = await bcrypt.hash(password, 12);
 
   const existingUser = await prisma.user.findUnique({
@@ -48,7 +58,14 @@ export async function registerUser(values: z.infer<typeof RegisterSchema>) {
     },
   });
 
-  return { success: "Account created! Please verify your email.", rawVerificationToken: rawToken };
+  // The raw token goes ONLY to the user's inbox, never back to the browser.
+  await sendMail({
+    to: normalizedEmail,
+    subject: "Confirm your LifeHub email",
+    text: `Welcome to LifeHub.\n\nConfirm your email: ${appUrl()}/api/verify-email?token=${rawToken}\n\nThis link expires in 24 hours.`,
+  });
+
+  return { success: "Account created. You can sign in now." };
 }
 
 export async function loginUser(values: z.infer<typeof LoginSchema>) {
@@ -85,26 +102,37 @@ export async function requestPasswordReset(values: z.infer<typeof ForgotPassword
   if (!validated.success) return { error: "Invalid email" };
 
   const normalizedEmail = validated.data.email.toLowerCase();
-  const user = await prisma.user.findUnique({ where: { email: normalizedEmail } });
+  const generic = { success: "If that email exists, a password reset link has been sent." };
 
-  // Prevent email enumeration by returning success regardless
-  if (!user) {
-    return { success: "If that email exists, a password reset link has been dispatched." };
-  }
+  const ip = clientIp(await headers());
+  const [byEmail, byIp] = await Promise.all([
+    rateLimit(`reset:${normalizedEmail}`, 3, 60 * 60 * 1000),
+    rateLimit(`reset-ip:${ip}`, 10, 60 * 60 * 1000),
+  ]);
+  if (!byEmail.ok || !byIp.ok) return generic; // same answer: no signal to attackers
+
+  const user = await prisma.user.findUnique({ where: { email: normalizedEmail } });
+  if (!user || !user.isActive || user.deletedAt) return generic;
 
   const rawToken = crypto.randomBytes(32).toString("hex");
   const tokenHash = crypto.createHash("sha256").update(rawToken).digest("hex");
   const expires = new Date(Date.now() + 1000 * 60 * 60); // 1 hour
+  const identifier = `pwd-reset:${normalizedEmail}`;
 
-  await prisma.verificationToken.create({
-    data: {
-      identifier: `pwd-reset:${normalizedEmail}`,
-      token: tokenHash,
-      expires,
-    },
+  await prisma.$transaction([
+    prisma.verificationToken.deleteMany({ where: { identifier } }), // invalidate older links
+    prisma.verificationToken.create({ data: { identifier, token: tokenHash, expires } }),
+  ]);
+
+  // SECURITY: the raw token is only emailed. It used to be returned to the caller,
+  // which let anyone reset anyone's password by just knowing their email address.
+  await sendMail({
+    to: normalizedEmail,
+    subject: "Reset your LifeHub password",
+    text: `Reset your password: ${appUrl()}/reset-password?token=${rawToken}\n\nThis link expires in 1 hour. If you did not ask for it, ignore this email.`,
   });
 
-  return { success: "If that email exists, a password reset link has been dispatched.", rawToken };
+  return generic;
 }
 
 export async function resetPasswordWithToken(values: z.infer<typeof ResetPasswordSchema>) {

@@ -36,27 +36,70 @@ describe("Grocery Actions", () => {
     });
   });
 
-  describe("finalizeShoppingSession", () => {
-    it("should create a consolidated transaction and mark items as purchased", async () => {
+  describe("updateItemStatus idempotency", () => {
+    it("does not create pantry/expense rows again for an already purchased item", async () => {
       (auth as any).mockResolvedValue({ user: { id: "user-1" } });
-      
-      // Mock active group
-      vi.mock("./user", () => ({
-        getActiveGroupId: vi.fn().mockResolvedValue("group-1")
-      }));
+      (prisma.groceryItem.findFirst as any).mockResolvedValue({
+        id: "item-1", status: "PURCHASED", purchasedAt: new Date(), purchasedBy: "user-1", actualPrice: 4,
+        list: { ownerId: "user-1", groupId: null },
+      });
+      (prisma.groceryItem.update as any).mockResolvedValue({
+        id: "item-1", name: "Milk", category: "Dairy", quantity: 1, unit: "piece", actualPrice: 4,
+      });
 
-      // Mock category lookup and creation
-      (prisma.category.findFirst as any).mockResolvedValue(null);
-      (prisma.category.create as any).mockResolvedValue({ id: "cat-1", name: "Groceries" });
+      await updateItemStatus("item-1", "PURCHASED");
 
-      await finalizeShoppingSession({}, 150.75);
+      expect(prisma.pantryItem.create).not.toHaveBeenCalled();
+      expect(prisma.transaction.create).not.toHaveBeenCalled();
+    });
+  });
 
-      expect(prisma.transaction.create).toHaveBeenCalledWith(expect.objectContaining({
-        data: expect.objectContaining({
-          amount: 150.75,
-          description: expect.stringContaining("Shopping trip"),
-        })
-      }));
+  describe("finalizeShoppingSession", () => {
+    const milk = {
+      id: "i1", name: "Milk", category: "Dairy", quantity: 1, unit: "piece", estimatedPrice: null,
+    };
+
+    beforeEach(() => {
+      (auth as any).mockResolvedValue({ user: { id: "user-1" } });
+      (prisma.category.findFirst as any).mockResolvedValue({ id: "cat-1", name: "Dairy" });
+      (prisma.pantryItem.findFirst as any).mockResolvedValue(null);
+      (prisma.pantryCategory.findFirst as any).mockResolvedValue(null);
+    });
+
+    it("only touches items the caller can write to (never a bare id lookup)", async () => {
+      (prisma.groceryItem.findMany as any).mockResolvedValue([milk]);
+      await finalizeShoppingSession({ i1: 10 });
+
+      const where = (prisma.groceryItem.findMany as any).mock.calls[0][0].where;
+      expect(where.status).toBe("PENDING");
+      const branches = where.list.OR;
+      expect(branches).toContainEqual({ ownerId: "user-1" });
+      expect(branches).toContainEqual({ groupId: "__no_group__" }); // never `undefined`
+      expect(JSON.stringify(branches)).not.toContain("undefined");
+    });
+
+    it("creates NO expense when nothing is pending (double tap / not your items)", async () => {
+      (prisma.groceryItem.findMany as any).mockResolvedValue([]);
+      await finalizeShoppingSession({ i1: 10 }, 12);
+      expect(prisma.transaction.create).not.toHaveBeenCalled();
+      expect(prisma.pantryItem.create).not.toHaveBeenCalled();
+    });
+
+    it("scales category totals to the receipt total and sums exactly to it", async () => {
+      (prisma.groceryItem.findMany as any).mockResolvedValue([
+        milk,
+        { ...milk, id: "i2", name: "Bread", category: "Bakery" },
+      ]);
+      await finalizeShoppingSession({ i1: 10, i2: 5 }, 16);
+
+      const amounts = (prisma.transaction.create as any).mock.calls.map((c: any) => c[0].data.amount);
+      expect(amounts.reduce((a: number, b: number) => Math.round((a + b) * 100) / 100, 0)).toBe(16);
+      expect(prisma.pantryItem.create).toHaveBeenCalledTimes(2);
+    });
+
+    it("rejects invalid prices", async () => {
+      await expect(finalizeShoppingSession({ i1: -1 })).rejects.toThrow("Invalid price");
+      await expect(finalizeShoppingSession({ i1: Number.NaN })).rejects.toThrow("Invalid price");
     });
   });
 });

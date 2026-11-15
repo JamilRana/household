@@ -117,167 +117,169 @@ export function ShareModal({ resourceType, resourceId, resourceName, trigger }: 
         )}
       </DialogTrigger>
       
-      <DialogContent className="sm:max-w-[500px] rounded-[2rem] p-6 border-none shadow-2xl max-h-[80vh] overflow-hidden flex flex-col">
-        <DialogHeader className="space-y-2">
-          <DialogTitle className="text-xl font-black flex items-center gap-2">
-            <Share2 className="size-5" />
-            Share "{resourceName}"
+      <DialogContent className="w-full sm:max-w-md p-5 sm:p-6 rounded-xl border border-border bg-card shadow-lg max-h-[85vh] overflow-hidden flex flex-col">
+        <DialogHeader className="space-y-1 pb-2">
+          <DialogTitle className="text-base sm:text-lg font-semibold tracking-tight text-foreground flex items-center gap-2">
+            <Share2 className="size-4 text-primary" />
+            <span>Share &ldquo;{resourceName}&rdquo;</span>
           </DialogTitle>
-          <DialogDescription className="text-slate-400">
-            Invite users or groups to collaborate on this {resourceType === "TASK_LIST" || resourceType === "GROCERY_LIST" ? "list" : "task"}.
+          <DialogDescription className="text-xs text-muted-foreground">
+            Invite members or teams to collaborate on this {resourceType === "TASK_LIST" || resourceType === "GROCERY_LIST" ? "list" : "task"}.
           </DialogDescription>
         </DialogHeader>
 
-        <Tabs defaultValue="users" className="flex-1 overflow-hidden flex flex-col">
-          <TabsList className="grid grid-cols-3 bg-slate-100 dark:bg-slate-800 rounded-xl p-1">
-            <TabsTrigger value="users" className="rounded-lg font-bold text-xs">Users</TabsTrigger>
-            <TabsTrigger value="groups" className="rounded-lg font-bold text-xs">Groups</TabsTrigger>
-            <TabsTrigger value="shared" className="rounded-lg font-bold text-xs">Shared</TabsTrigger>
+        <Tabs defaultValue="users" className="flex-1 overflow-hidden flex flex-col min-h-0">
+          <TabsList className="grid grid-cols-3 bg-muted/60 p-1 rounded-lg">
+            <TabsTrigger value="users" className="text-xs font-medium">Users</TabsTrigger>
+            <TabsTrigger value="groups" className="text-xs font-medium">Teams</TabsTrigger>
+            <TabsTrigger value="shared" className="text-xs font-medium">Access ({sharedUsers.length})</TabsTrigger>
           </TabsList>
 
-          <TabsContent value="users" className="space-y-4 mt-4 overflow-y-auto flex-1">
+          <TabsContent value="users" className="space-y-3 mt-3 overflow-y-auto flex-1 min-h-0 pr-1">
             <div className="relative">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-slate-400" />
+              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 size-3.5 text-muted-foreground" />
               <Input
                 placeholder="Search users..."
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                className="h-10 pl-9 rounded-xl"
+                className="h-8 pl-8 text-xs"
               />
             </div>
             
             {loading ? (
-              <div className="text-center py-8">
-                <Loader2 className="h-6 w-6 animate-spin mx-auto text-slate-400" />
+              <div className="text-center py-6">
+                <Loader2 className="size-5 animate-spin mx-auto text-muted-foreground" />
               </div>
             ) : filteredAvailableUsers.length > 0 ? (
-              <div className="space-y-2 max-h-[200px] overflow-y-auto">
+              <div className="space-y-1.5 max-h-[190px] overflow-y-auto pr-1">
                 {filteredAvailableUsers.map((user) => (
                   <div 
                     key={user.id} 
-                    className="flex items-center justify-between p-3 rounded-xl bg-slate-50 dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors"
+                    className="flex items-center justify-between p-2 rounded-lg border border-border/60 bg-muted/20 hover:bg-muted/40 transition-colors"
                   >
-                    <div className="flex items-center gap-3">
-                      <Avatar className="size-8">
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <Avatar className="size-7 shrink-0">
                         <AvatarImage src={user.image} />
-                        <AvatarFallback className="text-xs font-bold bg-blue-100 text-blue-600">
+                        <AvatarFallback className="text-[10px] font-semibold bg-primary/10 text-primary">
                           {user.name?.[0] || user.email[0]}
                         </AvatarFallback>
                       </Avatar>
-                      <div>
-                        <p className="text-sm font-bold">{user.name || "Unnamed"}</p>
-                        <p className="text-xs text-slate-400">{user.email}</p>
+                      <div className="min-w-0">
+                        <p className="text-xs font-medium text-foreground truncate">{user.name || "Unnamed"}</p>
+                        <p className="text-[11px] text-muted-foreground truncate">{user.email}</p>
                       </div>
                     </div>
                     <Button 
-                      size="sm" 
+                      size="icon-xs" 
                       onClick={() => handleShareUser(user.id)}
                       disabled={sharingUser}
-                      className="rounded-full text-xs font-bold h-8"
+                      className="size-7"
                     >
-                      {sharingUser ? <Loader2 className="h-3 w-3 animate-spin" /> : <UserPlus className="h-3 w-3" />}
+                      {sharingUser ? <Loader2 className="size-3 animate-spin" /> : <UserPlus className="size-3" />}
                     </Button>
                   </div>
                 ))}
               </div>
             ) : (
-              <div className="text-center py-8 text-slate-400 text-sm">
-                No users available to share with
+              <div className="text-center py-6 text-muted-foreground text-xs">
+                No users available to invite
               </div>
             )}
           </TabsContent>
 
-          <TabsContent value="groups" className="space-y-4 mt-4 overflow-y-auto flex-1">
+          <TabsContent value="groups" className="space-y-3 mt-3 overflow-y-auto flex-1 min-h-0 pr-1">
             {loading ? (
-              <div className="text-center py-8">
-                <Loader2 className="h-6 w-6 animate-spin mx-auto text-slate-400" />
+              <div className="text-center py-6">
+                <Loader2 className="size-5 animate-spin mx-auto text-muted-foreground" />
               </div>
             ) : groups.length > 0 ? (
-              <div className="space-y-2 max-h-[200px] overflow-y-auto">
+              <div className="space-y-1.5 max-h-[190px] overflow-y-auto pr-1">
                 {groups.map((group) => (
                   <div 
                     key={group.id} 
-                    className="flex items-center justify-between p-3 rounded-xl bg-slate-50 dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors"
+                    className="flex items-center justify-between p-2 rounded-lg border border-border/60 bg-muted/20 hover:bg-muted/40 transition-colors"
                   >
-                    <div className="flex items-center gap-3">
-                      <div className="w-8 h-8 bg-indigo-100 dark:bg-indigo-900/30 rounded-lg flex items-center justify-center text-lg">
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <div className="size-7 bg-primary/10 rounded-md flex items-center justify-center text-sm shrink-0">
                         {group.icon || "👥"}
                       </div>
-                      <p className="text-sm font-bold">{group.name}</p>
+                      <p className="text-xs font-medium text-foreground truncate">{group.name}</p>
                     </div>
                     <Button 
-                      size="sm" 
+                      size="icon-xs" 
                       onClick={() => handleShareGroup(group.id)}
                       disabled={sharingUser}
-                      className="rounded-full text-xs font-bold h-8"
+                      className="size-7"
                     >
-                      {sharingUser ? <Loader2 className="h-3 w-3 animate-spin" /> : <Users className="h-3 w-3" />}
+                      {sharingUser ? <Loader2 className="size-3 animate-spin" /> : <Users className="size-3" />}
                     </Button>
                   </div>
                 ))}
               </div>
             ) : (
-              <div className="text-center py-8 text-slate-400 text-sm">
+              <div className="text-center py-6 text-muted-foreground text-xs">
                 No groups available. Create a group first.
               </div>
             )}
           </TabsContent>
 
-          <TabsContent value="shared" className="space-y-4 mt-4 overflow-y-auto flex-1">
+          <TabsContent value="shared" className="space-y-3 mt-3 overflow-y-auto flex-1 min-h-0 pr-1">
             {sharedUsers.length > 0 ? (
-              <div className="space-y-2 max-h-[250px] overflow-y-auto">
+              <div className="space-y-1.5 max-h-[220px] overflow-y-auto pr-1">
                 {sharedUsers.map((user) => (
                   <div 
                     key={user.id} 
-                    className="flex items-center justify-between p-3 bg-slate-50 dark:bg-slate-800 rounded-xl"
+                    className="flex items-center justify-between p-2 rounded-lg border border-border/60 bg-muted/20"
                   >
-                    <div className="flex items-center gap-3">
-                      <Avatar className="size-8">
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <Avatar className="size-7 shrink-0">
                         <AvatarImage src={user.image} />
-                        <AvatarFallback className="text-xs font-bold bg-emerald-100 text-emerald-600">
+                        <AvatarFallback className="text-[10px] font-semibold bg-emerald-100 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400">
                           {user.name?.[0] || user.email[0]}
                         </AvatarFallback>
                       </Avatar>
-                      <div>
-                        <p className="text-sm font-bold">{user.name || "Unnamed"}</p>
-                        <p className="text-xs text-slate-400">{user.email}</p>
+                      <div className="min-w-0">
+                        <p className="text-xs font-medium text-foreground truncate">{user.name || "Unnamed"}</p>
+                        <p className="text-[11px] text-muted-foreground truncate">{user.email}</p>
                       </div>
                     </div>
                     <Button
                       variant="ghost"
-                      size="icon"
+                      size="icon-xs"
                       onClick={() => handleRemoveShare(user.id)}
-                      className="size-8 rounded-full hover:bg-rose-100 dark:hover:bg-rose-900/20 hover:text-rose-600"
+                      className="size-7 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
+                      aria-label="Remove access"
                     >
-                      <X className="h-4 w-4" />
+                      <X className="size-3.5" />
                     </Button>
                   </div>
                 ))}
               </div>
             ) : (
-              <div className="text-center py-8 text-slate-400 text-sm">
+              <div className="text-center py-6 text-muted-foreground text-xs">
                 No one else has access yet
               </div>
             )}
           </TabsContent>
         </Tabs>
 
-        <div className="pt-4 border-t">
-          <div className="p-3 bg-slate-50 dark:bg-slate-800 rounded-xl space-y-2">
-            <p className="text-xs font-black uppercase tracking-widest text-slate-400">Share Link</p>
-            <div className="flex gap-2">
+        <div className="pt-3 border-t border-border mt-3">
+          <div className="p-2.5 bg-muted/30 rounded-lg space-y-1.5">
+            <p className="text-[11px] font-medium text-muted-foreground">Share Direct Link</p>
+            <div className="flex gap-1.5">
               <Input
                 readOnly
                 value={origin ? `${origin}/${resourceType === "GROCERY_LIST" ? "groceries" : "tasks"}/${resourceId}` : ""}
-                className="h-9 rounded-lg bg-white dark:bg-slate-900 font-mono text-xs"
+                className="h-8 font-mono text-[11px] bg-background"
               />
               <Button 
-                size="icon" 
-                variant="ghost" 
+                size="icon-xs" 
+                variant="outline" 
                 onClick={copyShareLink}
-                className="shrink-0 rounded-lg"
+                className="size-8 shrink-0"
+                aria-label="Copy link"
               >
-                {copied ? <Check className="size-4 text-emerald-500" /> : <Copy className="size-4" />}
+                {copied ? <Check className="size-3.5 text-emerald-500" /> : <Copy className="size-3.5" />}
               </Button>
             </div>
           </div>

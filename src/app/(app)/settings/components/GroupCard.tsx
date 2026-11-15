@@ -1,5 +1,7 @@
 "use client";
 
+import { toast } from "sonner";
+import { useConfirm } from "@/components/confirm-provider";
 import { useState } from "react";
 import { 
   createGroup, 
@@ -45,6 +47,7 @@ import {
 import { cn } from "@/lib/utils";
 
 export function GroupCard({ group }: { group: any }) {
+  const confirm = useConfirm();
   const [loading, setLoading] = useState(false);
   const [groupName, setGroupName] = useState("");
   const [inviteEmail, setInviteEmail] = useState("");
@@ -102,24 +105,24 @@ export function GroupCard({ group }: { group: any }) {
   };
 
   const handleLeave = async () => {
-    if (!confirm("Are you sure you want to leave this group?")) return;
+    if (!(await confirm({ title: "Leave this group?", confirmLabel: "Leave", destructive: true }))) return;
     setLeaving(true);
     try {
       await leaveGroup(group.id);
     } catch (error) {
-      alert(error instanceof Error ? error.message : "Failed to leave");
+      toast.error(error instanceof Error ? error.message : "Failed to leave");
     } finally {
       setLeaving(false);
     }
   };
 
   const handleDelete = async () => {
-    if (!confirm("CRITICAL: This will permanently delete the group and all its data. Are you absolutely sure?")) return;
+    if (!(await confirm({ title: "Delete this group?", description: "Everything shared in it will be deleted too. This cannot be undone.", confirmLabel: "Delete group", destructive: true }))) return;
     setDeleting(true);
     try {
       await deleteGroup(group.id);
     } catch (error) {
-      alert(error instanceof Error ? error.message : "Failed to delete");
+      toast.error(error instanceof Error ? error.message : "Failed to delete");
     } finally {
       setDeleting(false);
     }
@@ -130,39 +133,39 @@ export function GroupCard({ group }: { group: any }) {
     try {
       await updateMemberRole(group.id, memberId, role);
     } catch (error) {
-      alert(error instanceof Error ? error.message : "Failed to update role");
+      toast.error(error instanceof Error ? error.message : "Failed to update role");
     } finally {
       setIsUpdatingRole(null);
     }
   };
 
   const handleTransferOwnership = async (memberId: string) => {
-    if (!confirm("Are you sure you want to transfer ownership? You will be demoted to ADMIN.")) return;
+    if (!(await confirm({ title: "Transfer ownership?", description: "You will become an admin and the new owner will be in charge of this group.", confirmLabel: "Transfer" }))) return;
     try {
       await transferOwnership(group.id, memberId);
     } catch (error) {
-      alert(error instanceof Error ? error.message : "Failed to transfer");
+      toast.error(error instanceof Error ? error.message : "Failed to transfer");
     }
   };
 
   const handleRemoveMember = async (memberId: string) => {
-    if (!confirm("Are you sure you want to remove this member from the group?")) return;
+    if (!(await confirm({ title: "Remove this member?", description: "They will lose access to everything shared in this group.", confirmLabel: "Remove", destructive: true }))) return;
     try {
       await removeMember(group.id, memberId);
     } catch (error) {
-      alert(error instanceof Error ? error.message : "Failed to remove member");
+      toast.error(error instanceof Error ? error.message : "Failed to remove member");
     }
   };
 
   if (!group) {
     return (
-      <Card className="border-none shadow-xl bg-white dark:bg-slate-900 overflow-hidden">
+      <Card className="border-none shadow-md bg-white dark:bg-slate-900 overflow-hidden">
         <CardContent className="p-8 space-y-6 text-center">
           <div className="bg-violet-100 dark:bg-violet-900/30 w-20 h-20 rounded-full flex items-center justify-center mx-auto">
             <Home className="h-10 w-10 text-violet-600" />
           </div>
           <div className="space-y-2">
-            <h3 className="text-2xl font-black">Create a Group</h3>
+            <h3 className="text-2xl font-semibold">Create a Group</h3>
             <p className="text-slate-400 font-medium">Collaborate on tasks, groceries, and finances with your team or family.</p>
           </div>
           <div className="flex gap-3 max-w-sm mx-auto">
@@ -175,7 +178,7 @@ export function GroupCard({ group }: { group: any }) {
             <Button
               onClick={handleCreate}
               disabled={loading || !groupName.trim()}
-              className="bg-violet-600 hover:bg-violet-700 font-black h-11 px-6 shrink-0 rounded-xl"
+              className="bg-violet-600 hover:bg-violet-700 font-semibold h-11 px-6 shrink-0 rounded-xl"
             >
               {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : "Create"}
             </Button>
@@ -189,12 +192,12 @@ export function GroupCard({ group }: { group: any }) {
   const isAdmin = group.role === "ADMIN" || isOwner;
 
   return (
-    <Card className="border-none shadow-xl bg-white dark:bg-slate-900 overflow-hidden">
+    <Card className="border-none shadow-md bg-white dark:bg-slate-900 overflow-hidden">
       <CardContent className="p-0">
         {/* Group Header */}
-        <div className="p-6 bg-gradient-to-r from-violet-50 to-indigo-50 dark:from-violet-950/30 dark:to-indigo-950/30 border-b border-violet-100 dark:border-violet-900/30">
+        <div className="p-6 bg-muted/40 border-b border-violet-100 dark:border-violet-900/30">
           <div className="flex items-center gap-4">
-            <div className="bg-violet-600 w-14 h-14 rounded-2xl flex items-center justify-center text-white shadow-lg shadow-violet-200 dark:shadow-none relative group/icon">
+            <div className="bg-violet-600 w-14 h-14 rounded-2xl flex items-center justify-center text-white shadow-lg relative group/icon">
               {group.icon ? <span className="text-2xl">{group.icon}</span> : <Users className="h-6 w-6" />}
               {isAdmin && (
                 <button className="absolute -top-2 -right-2 size-6 bg-background border rounded-full flex items-center justify-center opacity-0 group-hover/icon:opacity-100 transition-opacity shadow-sm">
@@ -208,7 +211,7 @@ export function GroupCard({ group }: { group: any }) {
                   <Input
                     value={newName}
                     onChange={(e) => setNewName(e.target.value)}
-                    className="h-9 font-black bg-white dark:bg-slate-900 rounded-xl"
+                    className="h-9 font-semibold bg-white dark:bg-slate-900 rounded-xl"
                     autoFocus
                   />
                   <Button size="sm" onClick={handleRename} disabled={renaming} className="rounded-xl">
@@ -218,14 +221,14 @@ export function GroupCard({ group }: { group: any }) {
                 </div>
               ) : (
                 <div className="flex items-center gap-2">
-                  <h3 className="text-xl font-black">{group.name}</h3>
+                  <h3 className="text-xl font-semibold">{group.name}</h3>
                   {isAdmin && (
-                    <button onClick={() => setEditingName(true)} className="text-[10px] font-black text-violet-600/60 hover:text-violet-600 uppercase tracking-widest">Edit</button>
+                    <button onClick={() => setEditingName(true)} className="text-xs font-semibold text-violet-600/60 hover:text-violet-600">Edit</button>
                   )}
                 </div>
               )}
               <div className="flex items-center gap-2">
-                <Badge variant="outline" className="text-[9px] font-black uppercase tracking-widest px-2 bg-background/50">
+                <Badge variant="outline" className="text-xs font-semibold px-2 bg-background/50">
                   {group.role}
                 </Badge>
                 <span className="text-sm text-violet-600/60 font-bold">• {group.memberCount} members</span>
@@ -236,7 +239,7 @@ export function GroupCard({ group }: { group: any }) {
 
         {/* Members */}
         <div className="p-6 space-y-4">
-          <h4 className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 flex items-center gap-2">
+          <h4 className="text-xs font-semibold text-slate-400 flex items-center gap-2">
             <Users className="h-3.5 w-3.5" /> Members
           </h4>
           <div className="space-y-3">
@@ -245,19 +248,19 @@ export function GroupCard({ group }: { group: any }) {
                 <div className="flex items-center gap-3">
                   <Avatar className="h-10 w-10 border-2 border-background">
                     <AvatarImage src={member.user?.image || ""} />
-                    <AvatarFallback className="bg-violet-100 text-violet-600 font-black text-xs">
+                    <AvatarFallback className="bg-violet-100 text-violet-600 font-semibold text-xs">
                       {member.user?.name?.[0] || member.user?.email?.[0]}
                     </AvatarFallback>
                   </Avatar>
                   <div>
-                    <p className="font-black text-sm">{member.user?.name || "User"}</p>
-                    <p className="text-[10px] text-slate-400 font-bold uppercase tracking-tight">{member.user?.email}</p>
+                    <p className="font-semibold text-sm">{member.user?.name || "User"}</p>
+                    <p className="text-xs text-slate-400 font-bold tracking-tight">{member.user?.email}</p>
                   </div>
                 </div>
                 
                 <div className="flex items-center gap-3">
                   <Badge className={cn(
-                    "border-none font-black text-[9px] uppercase tracking-widest px-2 py-0.5",
+                    "border-none font-semibold text-xs px-2 py-0.5",
                     member.role === "OWNER"
                       ? "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300"
                       : member.role === "ADMIN"
@@ -271,13 +274,13 @@ export function GroupCard({ group }: { group: any }) {
                   {isAdmin && member.role !== "OWNER" && (
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
-                        <Button variant="ghost" size="icon" className="size-8 rounded-xl" disabled={isUpdatingRole === member.id}>
+                        <Button variant="ghost" size="icon" className="size-8 rounded-xl" disabled={isUpdatingRole === member.id} aria-label="More options">
                           {isUpdatingRole === member.id ? <Loader2 className="size-3 animate-spin" /> : <MoreVertical className="size-4" />}
                         </Button>
                       </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end" className="w-48 p-2 rounded-2xl shadow-xl border-muted/50">
+                      <DropdownMenuContent align="end" className="w-48 p-2 rounded-2xl shadow-md border-muted/50">
                         <DropdownMenuGroup>
-                          <DropdownMenuLabel className="text-[10px] font-black uppercase tracking-widest text-muted-foreground px-3 py-1.5">Manage Member</DropdownMenuLabel>
+                          <DropdownMenuLabel className="text-xs font-semibold text-muted-foreground px-3 py-1.5">Manage Member</DropdownMenuLabel>
                           <DropdownMenuItem onClick={() => handleUpdateRole(member.id, "ADMIN")} className="rounded-xl cursor-pointer">
                             <ShieldCheck className="size-4 mr-2" /> <span className="font-bold text-sm">Make Admin</span>
                           </DropdownMenuItem>
@@ -316,7 +319,7 @@ export function GroupCard({ group }: { group: any }) {
         {/* Invite */}
         {isAdmin && (
           <div className="p-6 pt-0 space-y-4">
-            <h4 className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 flex items-center gap-2">
+            <h4 className="text-xs font-semibold text-slate-400 flex items-center gap-2">
               <UserPlus className="h-3.5 w-3.5" /> Invite New Member
             </h4>
             <div className="flex gap-2">
@@ -330,13 +333,13 @@ export function GroupCard({ group }: { group: any }) {
               <Button
                 onClick={handleInvite}
                 disabled={inviteLoading || !inviteEmail.trim()}
-                className="bg-violet-600 hover:bg-violet-700 font-black h-11 px-6 shrink-0 rounded-xl"
+                className="bg-violet-600 hover:bg-violet-700 font-semibold h-11 px-6 shrink-0 rounded-xl"
               >
                 {inviteLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : "Invite"}
               </Button>
             </div>
             {inviteSent && (
-              <p className="text-emerald-600 text-xs font-black bg-emerald-50 dark:bg-emerald-900/20 p-3 rounded-xl flex items-center gap-2">
+              <p className="text-emerald-600 text-xs font-semibold bg-emerald-50 dark:bg-emerald-900/20 p-3 rounded-xl flex items-center gap-2">
                 <span className="size-5 rounded-full bg-emerald-100 flex items-center justify-center">✓</span>
                 Invitation sent successfully!
               </p>
@@ -345,14 +348,14 @@ export function GroupCard({ group }: { group: any }) {
             {/* Pending Invitations */}
             {group.invitations?.length > 0 && (
               <div className="space-y-2 pt-2">
-                <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Pending Requests</p>
+                <p className="text-xs font-semibold text-slate-400">Pending Requests</p>
                 {group.invitations.map((inv: any) => (
                   <div key={inv.id} className="flex items-center justify-between p-3 bg-amber-50/50 dark:bg-amber-900/10 rounded-xl border border-amber-100 dark:border-amber-900/20">
                     <div className="flex items-center gap-2 text-sm">
                       <Mail className="h-4 w-4 text-amber-500" />
                       <span className="font-bold text-amber-900 dark:text-amber-200">{inv.email}</span>
                     </div>
-                    <Badge variant="outline" className="text-[9px] font-black bg-amber-100/50 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300 border-none px-2 uppercase tracking-widest">Awaiting</Badge>
+                    <Badge variant="outline" className="text-xs font-semibold bg-amber-100/50 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300 border-none px-2">Awaiting</Badge>
                   </div>
                 ))}
               </div>
@@ -362,13 +365,13 @@ export function GroupCard({ group }: { group: any }) {
 
         {/* Permissions / Preferences */}
         <div className="p-6 pt-0 space-y-4">
-           <h4 className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 flex items-center gap-2">
+           <h4 className="text-xs font-semibold text-slate-400 flex items-center gap-2">
             <Settings2 className="h-3.5 w-3.5" /> Group Preferences
           </h4>
           <div className="flex items-center justify-between p-4 rounded-2xl border border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50">
             <div className="space-y-0.5">
-              <p className="text-sm font-black">Share Finance Data</p>
-              <p className="text-[10px] text-muted-foreground font-bold uppercase tracking-tight">Allow other members to see group expenses</p>
+              <p className="text-sm font-semibold">Share Finance Data</p>
+              <p className="text-xs text-muted-foreground font-bold tracking-tight">Allow other members to see group expenses</p>
             </div>
             <div className="size-6 rounded-lg bg-emerald-100 dark:bg-emerald-900/30 flex items-center justify-center">
               <Check className="size-4 text-emerald-600 dark:text-emerald-400" />
@@ -381,7 +384,7 @@ export function GroupCard({ group }: { group: any }) {
           {isOwner ? (
             <Button
               variant="ghost"
-              className="text-rose-600 hover:text-rose-700 hover:bg-rose-50 dark:hover:bg-rose-950/20 font-black text-[10px] uppercase tracking-widest px-4 h-9 rounded-xl"
+              className="text-rose-600 hover:text-rose-700 hover:bg-rose-50 dark:hover:bg-rose-950/20 font-semibold text-xs px-4 h-9 rounded-xl"
               onClick={handleDelete}
               disabled={deleting}
             >
@@ -391,7 +394,7 @@ export function GroupCard({ group }: { group: any }) {
           ) : (
             <Button
               variant="ghost"
-              className="text-rose-600 hover:text-rose-700 hover:bg-rose-50 dark:hover:bg-rose-950/20 font-black text-[10px] uppercase tracking-widest px-4 h-9 rounded-xl"
+              className="text-rose-600 hover:text-rose-700 hover:bg-rose-50 dark:hover:bg-rose-950/20 font-semibold text-xs px-4 h-9 rounded-xl"
               onClick={handleLeave}
               disabled={leaving}
             >
@@ -400,7 +403,7 @@ export function GroupCard({ group }: { group: any }) {
             </Button>
           )}
           
-          <p className="text-[10px] text-slate-400 font-black uppercase tracking-widest">
+          <p className="text-xs text-slate-400 font-semibold">
             Created {new Date(group.createdAt).toLocaleDateString()}
           </p>
         </div>

@@ -1,292 +1,327 @@
+import { redirect } from "next/navigation";
+import Link from "next/link";
+import { format, differenceInCalendarDays, isToday, isTomorrow } from "date-fns";
+import { ArrowRight, Clock, ShoppingCart, Package, Banknote, CalendarCheck } from "lucide-react";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
-import { 
-  ListTodo, 
-  ShoppingCart, 
-  Banknote, 
-  Package, 
-  AlertCircle,
-  ArrowUpRight
-} from "lucide-react";
-import Link from "next/link";
-import { format } from "date-fns";
+import { NO_GROUP } from "@/lib/scope";
 import { getActiveGroupId } from "@/lib/actions/user";
+import { formatMoney } from "@/lib/format";
+import { TodayHeader } from "@/components/dashboard/today-header";
+import { TodayTaskRow } from "@/components/dashboard/today-task-row";
 
-export default async function DashboardPage() {
+export const metadata = { title: "Today" };
+
+function dueLabel(date: Date, now: Date) {
+  if (isToday(date)) return "Today";
+  if (isTomorrow(date)) return "Tomorrow";
+  const days = differenceInCalendarDays(now, date);
+  if (days > 0) return days === 1 ? "Yesterday" : `${days}d late`;
+  return format(date, "d MMM");
+}
+
+function expiryLabel(date: Date, now: Date) {
+  const days = differenceInCalendarDays(date, now);
+  if (days < 0) return days === -1 ? "Expired yesterday" : `Expired ${-days}d ago`;
+  if (days === 0) return "Expires today";
+  if (days === 1) return "Expires tomorrow";
+  return `Expires in ${days}d`;
+}
+
+export default async function TodayPage() {
   const session = await auth();
-  if (!session?.user?.id) return null;
-
-  const groupId = await getActiveGroupId(session.user.id);
+  if (!session?.user?.id) redirect("/login");
+  const userId = session.user.id;
+  const groupId = await getActiveGroupId(userId);
+  const g = groupId ?? NO_GROUP;
 
   const now = new Date();
-  const startOfToday = new Date(now.setHours(0, 0, 0, 0));
-  const startOfThisMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+  const endOfToday = new Date(now);
+  endOfToday.setHours(23, 59, 59, 999);
+  const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
   const startOfLastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+  const sameDayLastMonth = new Date(now.getFullYear(), now.getMonth() - 1, Math.min(now.getDate(), 28), 23, 59, 59);
+  const soon = new Date(now.getTime() + 3 * 24 * 60 * 60 * 1000);
 
-  // Fetch summary data across all modules (User + Group scoped)
-  const [
-    taskCount, 
-    tasksNewToday,
-    groceryCount, 
-    groceriesNewToday,
-    transactions, 
-    thisMonthExpenses,
-    lastMonthExpenses,
-    pantryItems,
-    expiringSoonCount
-  ] = await Promise.all([
-    prisma.task.count({ 
-      where: { 
-        OR: [{ createdBy: session.user.id }, { list: { groupId: groupId || undefined } }],
-        status: { not: "COMPLETED" } 
-      } 
+  const mineOrGroup = { OR: [{ userId }, { groupId: g }] };
+  const listAccess = { OR: [{ ownerId: userId }, { groupId: g }] };
+
+  const [dueTasks, dueTaskCount, expiring, groceryCount, groceryItems, spentNow, spentThen, recent] = await Promise.all([
+    prisma.task.findMany({
+      where: {
+        status: { notIn: ["COMPLETED", "CANCELLED"] },
+        dueDate: { lte: endOfToday },
+        OR: [{ createdBy: userId }, { assignments: { some: { userId } } }, { list: { groupId: g } }],
+      },
+      orderBy: { dueDate: "asc" },
+      take: 8,
+      include: { list: { select: { id: true, name: true } } },
     }),
-    prisma.task.count({ 
-      where: { 
-        OR: [{ createdBy: session.user.id }, { list: { groupId: groupId || undefined } }],
-        createdAt: { gte: startOfToday } 
-      } 
+    prisma.task.count({
+      where: {
+        status: { notIn: ["COMPLETED", "CANCELLED"] },
+        dueDate: { lte: endOfToday },
+        OR: [{ createdBy: userId }, { assignments: { some: { userId } } }, { list: { groupId: g } }],
+      },
     }),
-    prisma.groceryItem.count({ 
-      where: { 
-        OR: [{ createdBy: session.user.id }, { list: { groupId: groupId || undefined } }],
-        status: "PENDING" 
-      } 
+    prisma.pantryItem.findMany({
+      where: { ...mineOrGroup, expiryDate: { not: null, lte: soon } },
+      orderBy: { expiryDate: "asc" },
+      take: 5,
     }),
-    prisma.groceryItem.count({ 
-      where: { 
-        OR: [{ createdBy: session.user.id }, { list: { groupId: groupId || undefined } }],
-        createdAt: { gte: startOfToday } 
-      } 
-    }),
-    prisma.transaction.findMany({ 
-      where: { 
-        OR: [{ userId: session.user.id }, { groupId: groupId || undefined }] 
-      }, 
-      orderBy: { date: "desc" }, 
-      take: 5 
+    prisma.groceryItem.count({ where: { status: "PENDING", list: { ...listAccess, isArchived: false } } }),
+    prisma.groceryItem.findMany({
+      where: { status: "PENDING", list: { ...listAccess, isArchived: false } },
+      orderBy: { createdAt: "desc" },
+      take: 6,
+      select: { id: true, name: true },
     }),
     prisma.transaction.aggregate({
-      where: { 
-        OR: [{ userId: session.user.id }, { groupId: groupId || undefined }],
-        type: "EXPENSE", 
-        date: { gte: startOfThisMonth } 
-      },
-      _sum: { amount: true }
+      where: { ...mineOrGroup, type: "EXPENSE", date: { gte: startOfMonth } },
+      _sum: { amount: true },
     }),
     prisma.transaction.aggregate({
-      where: { 
-        OR: [{ userId: session.user.id }, { groupId: groupId || undefined }],
-        type: "EXPENSE", 
-        date: { gte: startOfLastMonth, lt: startOfThisMonth } 
-      },
-      _sum: { amount: true }
+      where: { ...mineOrGroup, type: "EXPENSE", date: { gte: startOfLastMonth, lte: sameDayLastMonth } },
+      _sum: { amount: true },
     }),
-    prisma.pantryItem.findMany({ 
-      where: { 
-        OR: [{ userId: session.user.id }, { groupId: groupId || undefined }] 
-      }, 
-      orderBy: { expiryDate: "asc" }, 
-      take: 4 
+    prisma.transaction.findMany({
+      where: mineOrGroup,
+      orderBy: { date: "desc" },
+      take: 4,
+      include: { category: { select: { name: true } } },
     }),
-    prisma.pantryItem.count({
-      where: { 
-        OR: [{ userId: session.user.id }, { groupId: groupId || undefined }],
-        expiryDate: {
-          gt: new Date(),
-          lt: new Date(Date.now() + 1000 * 60 * 60 * 24 * 7)
-        }
-      }
-    })
   ]);
 
-  const thisMonthTotal = Number(thisMonthExpenses._sum.amount || 0);
-  const lastMonthTotal = Number(lastMonthExpenses._sum.amount || 0);
-  const financeTrend = lastMonthTotal > 0 
-    ? `${((thisMonthTotal - lastMonthTotal) / lastMonthTotal * 100).toFixed(0)}% from last month`
-    : "First month tracking";
+  const spent = Number(spentNow._sum.amount ?? 0);
+  const spentBefore = Number(spentThen._sum.amount ?? 0);
+  const diff = spent - spentBefore;
+  const spendNote =
+    spentBefore === 0
+      ? "Nothing to compare with yet"
+      : Math.abs(diff) < spentBefore * 0.03
+      ? "About the same as this time last month"
+      : diff > 0
+      ? `${formatMoney(diff, undefined, { cents: false })} more than this time last month`
+      : `${formatMoney(-diff, undefined, { cents: false })} less than this time last month`;
 
-  const firstName = session.user.name?.split(" ")[0] || "User";
+  const firstName = session.user.name?.split(" ")[0] || "there";
+  const overdueCount = dueTasks.filter((t) => t.dueDate && differenceInCalendarDays(now, t.dueDate) > 0).length;
+  const summary =
+    dueTaskCount === 0
+      ? "Nothing is due today. A good day to get ahead."
+      : overdueCount > 0
+      ? `${dueTaskCount} ${dueTaskCount === 1 ? "thing needs" : "things need"} you today, ${overdueCount} already late.`
+      : `${dueTaskCount} ${dueTaskCount === 1 ? "thing is" : "things are"} due today.`;
 
   return (
-    <div className="p-6 md:p-8 max-w-6xl mx-auto space-y-8">
-      {/* Header */}
-      <header className="flex flex-col sm:flex-row sm:items-baseline justify-between gap-3 border-b border-border pb-6">
-        <div className="space-y-1">
-          <h1 className="text-2xl font-semibold tracking-tight text-foreground">
-            Overview
-          </h1>
-          <p className="text-sm text-muted-foreground">
-            Good day, {firstName}. {taskCount === 0 ? "All tasks completed." : `${taskCount} pending tasks require attention.`}
-          </p>
-        </div>
-        <time className="text-xs font-mono text-muted-foreground">
-          {format(new Date(), "EEEE, MMM d, yyyy")}
-        </time>
-      </header>
+    <div className="w-full space-y-6">
+      {/* Galley Page Header */}
+      <TodayHeader name={firstName} summary={summary} />
 
-      {/* Stats Grid */}
-      <section aria-labelledby="stats-heading">
-        <h2 id="stats-heading" className="sr-only">Household metrics</h2>
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          <StatTile
-            title="Pending tasks"
-            value={taskCount}
-            detail={`${tasksNewToday} new today`}
-            href="/tasks"
-            icon={ListTodo}
-          />
-          <StatTile
-            title="Grocery items"
-            value={groceryCount}
-            detail={`${groceriesNewToday} added today`}
-            href="/groceries"
-            icon={ShoppingCart}
-          />
-          <StatTile
-            title="Monthly expenses"
-            value={`$${thisMonthTotal.toLocaleString()}`}
-            detail={financeTrend}
-            href="/finance"
-            icon={Banknote}
-          />
-          <StatTile
-            title="Tracked pantry"
-            value={pantryItems.length}
-            detail={`${expiringSoonCount} expiring soon`}
-            href="/pantry"
-            icon={Package}
-          />
+      {/* Galley Interconnected Stat Strip */}
+      <div className="stat-strip-galley">
+        <div>
+          <span className="stat-label">DUE TODAY</span>
+          <b className="stat-val">{dueTaskCount}</b>
+          <small className="stat-sub">
+            {overdueCount > 0 ? (
+              <span className="text-destructive font-medium">{overdueCount} already late</span>
+            ) : (
+              "All up to date"
+            )}
+          </small>
         </div>
-      </section>
 
-      {/* Two Column Layout */}
-      <div className="grid gap-8 lg:grid-cols-3">
-        {/* Recent Transactions List */}
-        <section className="lg:col-span-2 space-y-4">
-          <div className="flex items-center justify-between">
-            <h2 className="text-base font-semibold text-foreground">Recent transactions</h2>
-            <Link 
-              href="/finance" 
-              className="text-xs text-primary hover:underline inline-flex items-center gap-1"
+        <div>
+          <span className="stat-label">TO BUY</span>
+          <b className="stat-val">{groceryCount}</b>
+          <small className="stat-sub">Groceries on active list</small>
+        </div>
+
+        <div>
+          <span className="stat-label">USE SOON</span>
+          <b className="stat-val">{expiring.length}</b>
+          <small className="stat-sub">Pantry items near expiry</small>
+        </div>
+
+        <div>
+          <span className="stat-label">MONTHLY SPEND</span>
+          <b className="stat-val tabular-nums">{formatMoney(spent, undefined, { cents: false })}</b>
+          <small className="stat-sub">{spendNote}</small>
+        </div>
+      </div>
+
+      {/* Main Content Grid with Galley Cards */}
+      <div className="grid gap-6 lg:grid-cols-12">
+        {/* Tasks Section (Galley Span 7) */}
+        <section className="lg:col-span-7 galley-card space-y-4">
+          <div className="flex items-center justify-between gap-2 border-b border-rule pb-3.5">
+            <div>
+              <h2 className="text-base font-bold text-foreground">To do today</h2>
+              <p className="text-xs text-muted-foreground">Active priorities due or assigned</p>
+            </div>
+            <Link
+              href="/tasks"
+              className="text-xs font-semibold text-primary hover:underline inline-flex items-center gap-1"
             >
-              View ledger
-              <ArrowUpRight className="size-3.5" />
+              All tasks <ArrowRight className="size-3" />
             </Link>
           </div>
 
-          <div className="rounded-xl border border-border bg-card divide-y divide-border">
-            {transactions.map((t) => {
-              const isIncome = t.type === "INCOME";
-              return (
-                <div key={t.id} className="flex items-center justify-between p-4 text-sm">
-                  <div className="space-y-0.5">
-                    <p className="font-medium text-foreground">{t.description || "General purchase"}</p>
-                    <time className="text-xs text-muted-foreground block">
-                      {format(new Date(t.date), "MMM d, yyyy")}
-                    </time>
-                  </div>
-                  <div className="text-right">
-                    <span className={`font-mono font-medium ${isIncome ? "text-emerald-600 dark:text-emerald-400" : "text-foreground"}`}>
-                      {isIncome ? "+" : "-"}${Number(t.amount).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                    </span>
-                    <span className="block text-[11px] text-muted-foreground capitalize">
-                      {t.type.toLowerCase()}
-                    </span>
-                  </div>
-                </div>
-              );
-            })}
-            {transactions.length === 0 && (
-              <div className="py-12 text-center text-sm text-muted-foreground">
-                No recorded transactions yet.
-              </div>
-            )}
-          </div>
+          {dueTasks.length === 0 ? (
+            <div className="rounded-2xl border border-rule/60 bg-muted/20 p-8 text-center text-xs text-muted-foreground">
+              All clear. No tasks due today.
+            </div>
+          ) : (
+            <ul className="rounded-2xl border border-rule bg-card/60 divide-y divide-rule overflow-hidden">
+              {dueTasks.map((t) => (
+                <TodayTaskRow
+                  key={t.id}
+                  id={t.id}
+                  title={t.title}
+                  listId={t.list.id}
+                  listName={t.list.name}
+                  dueLabel={t.dueDate ? dueLabel(t.dueDate, now) : ""}
+                  overdue={!!t.dueDate && differenceInCalendarDays(now, t.dueDate) > 0}
+                />
+              ))}
+            </ul>
+          )}
         </section>
 
-        {/* Pantry & Expiry Notice */}
-        <section className="space-y-4">
-          <div className="flex items-center justify-between">
-            <h2 className="text-base font-semibold text-foreground">Pantry status</h2>
-            <Link 
-              href="/pantry" 
-              className="text-xs text-primary hover:underline inline-flex items-center gap-1"
-            >
-              Manage
-              <ArrowUpRight className="size-3.5" />
-            </Link>
-          </div>
+        {/* Right Column (Galley Span 5) */}
+        <div className="lg:col-span-5 space-y-6">
+          {/* Shopping List Card */}
+          <section className="galley-card space-y-3.5">
+            <div className="flex items-center justify-between gap-2 border-b border-rule pb-3">
+              <div>
+                <h2 className="text-base font-bold text-foreground">Shopping list</h2>
+                <p className="text-xs text-muted-foreground">Pending groceries needed</p>
+              </div>
+              <Link
+                href="/groceries"
+                className="text-xs font-semibold text-primary hover:underline inline-flex items-center gap-1"
+              >
+                Open list <ArrowRight className="size-3" />
+              </Link>
+            </div>
 
-          <div className="rounded-xl border border-border bg-card divide-y divide-border">
-            {pantryItems.map((item) => {
-              const isExpired = item.expiryDate && new Date(item.expiryDate) < new Date();
-              return (
-                <div key={item.id} className="p-3.5 text-sm flex items-center justify-between">
-                  <div>
-                    <p className="font-medium text-foreground">{item.name}</p>
-                    <p className="text-xs text-muted-foreground">
-                      Quantity: {Number(item.quantity)} {item.unit || "units"}
-                    </p>
-                  </div>
-                  {item.expiryDate && (
-                    <span className={`text-xs font-mono ${isExpired ? "text-destructive" : "text-muted-foreground"}`}>
-                      {format(new Date(item.expiryDate), "MMM d")}
+            {groceryCount === 0 ? (
+              <p className="text-xs text-muted-foreground py-2">Your shopping list is clear.</p>
+            ) : (
+              <div className="space-y-2">
+                <p className="text-sm font-semibold text-foreground">
+                  {groceryCount} {groceryCount === 1 ? "item" : "items"} needed
+                </p>
+                <div className="flex flex-wrap gap-1.5 pt-1">
+                  {groceryItems.map((i) => (
+                    <span
+                      key={i.id}
+                      className="px-2.5 py-1 rounded-full text-xs font-medium bg-muted border border-rule text-foreground"
+                    >
+                      {i.name}
+                    </span>
+                  ))}
+                  {groceryCount > groceryItems.length && (
+                    <span className="px-2.5 py-1 rounded-full text-xs font-medium bg-primary/10 text-primary border border-primary/20">
+                      +{groceryCount - groceryItems.length} more
                     </span>
                   )}
                 </div>
-              );
-            })}
-            {pantryItems.length === 0 && (
-              <div className="p-8 text-center text-sm text-muted-foreground">
-                Pantry inventory is empty.
               </div>
             )}
+          </section>
+
+          {/* Pantry Expiry Card */}
+          <section className="galley-card space-y-3.5">
+            <div className="flex items-center justify-between gap-2 border-b border-rule pb-3">
+              <div>
+                <h2 className="text-base font-bold text-foreground">Pantry alerts</h2>
+                <p className="text-xs text-muted-foreground">Items nearing expiry</p>
+              </div>
+              <Link
+                href="/pantry"
+                className="text-xs font-semibold text-primary hover:underline inline-flex items-center gap-1"
+              >
+                Pantry <ArrowRight className="size-3" />
+              </Link>
+            </div>
+
+            {expiring.length === 0 ? (
+              <p className="text-xs text-muted-foreground py-2">Nothing in the pantry is expiring soon.</p>
+            ) : (
+              <ul className="rounded-xl border border-rule bg-card/60 divide-y divide-rule overflow-hidden">
+                {expiring.map((p) => (
+                  <li
+                    key={p.id}
+                    className="flex items-center justify-between gap-3 px-3.5 py-2.5 text-xs"
+                  >
+                    <span className="truncate font-medium text-foreground">{p.name}</span>
+                    <span
+                      className={
+                        p.expiryDate && differenceInCalendarDays(p.expiryDate, now) < 0
+                          ? "text-[11px] text-destructive shrink-0 font-semibold"
+                          : "text-[11px] text-amber-600 dark:text-amber-400 shrink-0 font-medium"
+                      }
+                    >
+                      {p.expiryDate ? expiryLabel(p.expiryDate, now) : ""}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+        </div>
+      </div>
+
+      {/* Finance Card */}
+      <section className="galley-card space-y-4">
+        <div className="flex items-center justify-between gap-2 border-b border-rule pb-3.5">
+          <div>
+            <h2 className="text-base font-bold text-foreground">Cash flow & spending</h2>
+            <p className="text-xs text-muted-foreground">This monthly billing cycle</p>
+          </div>
+          <Link
+            href="/finance"
+            className="text-xs font-semibold text-primary hover:underline inline-flex items-center gap-1"
+          >
+            Open finance <ArrowRight className="size-3" />
+          </Link>
+        </div>
+
+        <div className="grid gap-6 md:grid-cols-12 items-center">
+          <div className="md:col-span-5 space-y-1.5">
+            <p className="text-3xl font-extrabold tabular-nums tracking-tight text-foreground">
+              {formatMoney(spent)}
+            </p>
+            <p className="text-xs text-muted-foreground">{spendNote}.</p>
           </div>
 
-          {expiringSoonCount > 0 && (
-            <div className="rounded-xl border border-amber-500/20 bg-amber-500/10 p-3.5 text-xs text-amber-900 dark:text-amber-200 flex items-start gap-2.5">
-              <AlertCircle className="size-4 shrink-0 mt-0.5 text-amber-600 dark:text-amber-400" />
-              <div>
-                <p className="font-medium">{expiringSoonCount} item{expiringSoonCount > 1 ? "s" : ""} expiring this week.</p>
-                <p className="text-amber-800/80 dark:text-amber-300/80 mt-0.5">Check the pantry to plan meals or restock.</p>
-              </div>
-            </div>
-          )}
-        </section>
-      </div>
+          <div className="md:col-span-7">
+            {recent.length > 0 && (
+              <ul className="rounded-2xl border border-rule bg-card/60 divide-y divide-rule text-xs overflow-hidden">
+                {recent.map((t) => (
+                  <li key={t.id} className="flex items-center justify-between gap-3 px-4 py-2.5">
+                    <span className="truncate font-medium text-foreground">
+                      {t.description || t.category?.name || "Expense"}
+                    </span>
+                    <span
+                      className={
+                        t.type === "INCOME"
+                          ? "text-emerald-600 dark:text-emerald-400 tabular-nums font-semibold"
+                          : "text-foreground tabular-nums font-semibold"
+                      }
+                    >
+                      {t.type === "INCOME" ? "+" : ""}
+                      {formatMoney(t.amount, t.currency)}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        </div>
+      </section>
     </div>
-  );
-}
-
-function StatTile({
-  title,
-  value,
-  detail,
-  href,
-  icon: Icon
-}: {
-  title: string;
-  value: string | number;
-  detail: string;
-  href: string;
-  icon: React.ComponentType<{ className?: string }>;
-}) {
-  return (
-    <Link 
-      href={href} 
-      className="group block rounded-xl border border-border bg-card p-4 transition-colors hover:border-foreground/20"
-    >
-      <div className="flex items-center justify-between text-muted-foreground">
-        <span className="text-xs font-medium text-muted-foreground">{title}</span>
-        <Icon className="size-4" />
-      </div>
-      <div className="mt-3">
-        <span className="text-2xl font-semibold tracking-tight text-foreground font-mono">
-          {value}
-        </span>
-      </div>
-      <p className="mt-1 text-xs text-muted-foreground">{detail}</p>
-    </Link>
   );
 }

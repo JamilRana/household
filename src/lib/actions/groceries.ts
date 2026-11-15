@@ -1,11 +1,14 @@
 "use server";
 
+import { DEFAULT_CURRENCY } from "@/lib/format";
+import { NO_GROUP, getWritableGroupId, onlyIfMember } from "@/lib/scope";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { getActiveGroupId } from "@/lib/actions/user";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
-import { ItemStatus } from "@prisma/client";
+import { ItemStatus, Prisma } from "@prisma/client";
+import { encrypt } from "@/lib/encryption";
 import { requireGroupAccess } from "@/lib/permissions";
 
 function getDynamicLocation(category?: string | null): string {
@@ -42,10 +45,21 @@ function getDynamicExpiryDays(category?: string | null): number {
   return 14; // Default
 }
 
-async function getOrCreateFinanceCategory(userId: string, categoryName?: string | null) {
+// A client that is either the global prisma or an interactive-transaction client.
+type Db = Prisma.TransactionClient;
+
+function validPrice(n: unknown): number {
+  const v = Number(n);
+  if (!Number.isFinite(v) || v < 0 || v > 1_000_000_000) {
+    throw new Error("Invalid price");
+  }
+  return Math.round(v * 100) / 100;
+}
+
+async function getOrCreateFinanceCategory(db: Db, userId: string, categoryName?: string | null) {
   const name = categoryName || "Groceries";
   
-  let category = await prisma.category.findFirst({
+  let category = await db.category.findFirst({
     where: {
       name,
       type: "EXPENSE",
@@ -64,7 +78,7 @@ async function getOrCreateFinanceCategory(userId: string, categoryName?: string 
       color = colors[Math.abs(hash) % colors.length];
     }
 
-    category = await prisma.category.create({
+    category = await db.category.create({
       data: {
         name,
         type: "EXPENSE",
@@ -107,13 +121,13 @@ export async function getGroceryLists(groupId?: string | null) {
   const session = await auth();
   if (!session?.user?.id) return [];
 
-  const activeGroupId = groupId !== undefined ? groupId : await getActiveGroupId(session.user.id);
+  const activeGroupId = groupId !== undefined ? await onlyIfMember(session.user.id, groupId) : await getActiveGroupId(session.user.id);
 
   return await prisma.groceryList.findMany({
     where: {
       OR: [
         { ownerId: session.user.id },
-        { groupId: activeGroupId || undefined },
+        { groupId: activeGroupId ?? NO_GROUP },
         { shares: { some: { userId: session.user.id } } },
       ],
       isArchived: false,
@@ -139,7 +153,7 @@ export async function getAllGroupGroceryItems() {
       list: {
         OR: [
           { ownerId: session.user.id },
-          { groupId: groupId || undefined },
+          { groupId: groupId ?? NO_GROUP },
           { shares: { some: { userId: session.user.id } } },
         ],
       },
@@ -183,7 +197,7 @@ export async function addGroceryItem(values: z.infer<typeof CreateGroceryItemSch
       id: values.listId,
       OR: [
         { ownerId: session.user.id },
-        { groupId: groupId || undefined },
+        { groupId: groupId ?? NO_GROUP },
         { shares: { some: { userId: session.user.id } } },
       ],
     },
@@ -213,14 +227,15 @@ export async function updateItemStatus(itemId: string, status: ItemStatus, actua
 
   // Security: verify the item belongs to a list the user can access
   const groupId = await getActiveGroupId(session.user.id);
+  const writableGroupId = await getWritableGroupId(session.user.id, groupId);
   const item = await prisma.groceryItem.findFirst({
     where: {
       id: itemId,
       list: {
         OR: [
           { ownerId: session.user.id },
-          { groupId: groupId || undefined },
-          { shares: { some: { userId: session.user.id } } },
+          { groupId: writableGroupId ?? NO_GROUP },
+          { shares: { some: { userId: session.user.id, role: { in: ["EDITOR", "ADMIN"] } } } },
         ],
       },
     },
@@ -228,64 +243,67 @@ export async function updateItemStatus(itemId: string, status: ItemStatus, actua
 
   if (!item) throw new Error("Item not found or access denied");
 
-  const updated = await prisma.groceryItem.update({
-    where: { id: itemId },
-    data: { 
-      status,
-      purchasedAt: status === "PURCHASED" ? new Date() : null,
-      purchasedBy: status === "PURCHASED" ? session.user.id : null,
-      actualPrice: status === "PURCHASED" ? (actualPrice ?? (item.estimatedPrice ? Number(item.estimatedPrice) : null)) : null,
-      estimatedPrice: status === "PURCHASED" ? (actualPrice ?? (item.estimatedPrice ? Number(item.estimatedPrice) : null)) : item.estimatedPrice,
-    },
-  });
+  const price = actualPrice !== undefined ? validPrice(actualPrice) : null;
+  const alreadyPurchased = item.status === "PURCHASED";
 
-  // Automatically sync to Pantry and Finance when item is marked as purchased (completed)
-  if (status === "PURCHASED") {
-    // 1. Add to Pantry (Dynamic Location and Expiry)
-    const expiryDays = getDynamicExpiryDays(updated.category);
-    const expiryDate = new Date();
-    expiryDate.setDate(expiryDate.getDate() + expiryDays);
-    const dynamicLocation = getDynamicLocation(updated.category);
-    const categoryId = await findPantryCategoryByName(session.user.id, updated.category);
-
-    await prisma.pantryItem.create({
+  const updated = await prisma.$transaction(async (tx) => {
+    const row = await tx.groceryItem.update({
+      where: { id: itemId },
       data: {
-        name: updated.name,
-        quantity: updated.quantity,
-        unit: updated.unit,
-        location: dynamicLocation,
-        expiryDate,
-        userId: session.user.id,
-        groupId,
-        categoryId,
+        status,
+        purchasedAt: status === "PURCHASED" ? (alreadyPurchased ? item.purchasedAt : new Date()) : null,
+        purchasedBy: status === "PURCHASED" ? (alreadyPurchased ? item.purchasedBy : session.user!.id!) : null,
+        actualPrice:
+          status === "PURCHASED"
+            ? (price ?? (item.actualPrice ? Number(item.actualPrice) : item.estimatedPrice ? Number(item.estimatedPrice) : null))
+            : null,
       },
     });
 
-    // 2. Add to Finance (Dynamic Transaction Category)
-    const price = updated.actualPrice ? Number(updated.actualPrice) : 0;
-    if (price > 0) {
-      const financeCategory = await getOrCreateFinanceCategory(session.user.id, updated.category);
-      const { encrypt } = await import("@/lib/encryption");
+    // Idempotent: only the PENDING/UNAVAILABLE -> PURCHASED transition creates pantry + expense rows.
+    if (status === "PURCHASED" && !alreadyPurchased) {
+      const expiryDate = new Date();
+      expiryDate.setDate(expiryDate.getDate() + getDynamicExpiryDays(row.category));
+      const categoryId = await findPantryCategoryByName(tx, session.user!.id!, row.category);
 
-      await prisma.transaction.create({
+      await tx.pantryItem.create({
         data: {
-          userId: session.user.id,
+          name: row.name,
+          quantity: row.quantity,
+          unit: row.unit,
+          location: getDynamicLocation(row.category),
+          expiryDate,
+          userId: session.user!.id!,
           groupId,
-          type: "EXPENSE",
-          amount: price,
-          currency: "USD",
-          categoryId: financeCategory.id,
-          date: new Date(),
-          description: `Purchased: ${updated.name}`,
-          paymentMethod: "CASH",
-          encryptedAmount: encrypt(price.toString()),
+          categoryId,
         },
       });
-    }
-  }
 
-  // Notify group members when item purchased
-  if (status === "PURCHASED" && groupId) {
+      const amount = row.actualPrice ? Number(row.actualPrice) : 0;
+      if (amount > 0) {
+        const financeCategory = await getOrCreateFinanceCategory(tx, session.user!.id!, row.category);
+        await tx.transaction.create({
+          data: {
+            userId: session.user!.id!,
+            groupId,
+            type: "EXPENSE",
+            amount,
+            currency: DEFAULT_CURRENCY,
+            categoryId: financeCategory.id,
+            date: new Date(),
+            description: `Purchased: ${row.name}`,
+            paymentMethod: "CASH",
+            encryptedAmount: encrypt(amount.toFixed(2), session.user!.id!),
+          },
+        });
+      }
+    }
+
+    return row;
+  });
+
+  // Notify group members when item purchased (first time only)
+  if (status === "PURCHASED" && !alreadyPurchased && groupId) {
     const members = await prisma.groupMember.findMany({
       where: { 
         groupId,
@@ -298,8 +316,8 @@ export async function updateItemStatus(itemId: string, status: ItemStatus, actua
       await createNotification(
         member.userId,
         "ITEM_PURCHASED",
-        "Item Purchased",
-        `${session.user.name || 'A member'} bought: ${updated.name}`
+        "Picked up",
+        `${session.user.name || "Someone"} bought ${updated.name}`
       );
     }
   }
@@ -320,151 +338,164 @@ export async function updateItemStatus(itemId: string, status: ItemStatus, actua
 export async function finalizeShoppingSession(itemPrices: Record<string, number>, manualTotal?: number) {
   const session = await auth();
   if (!session?.user?.id) throw new Error("Unauthorized");
+  const userId = session.user.id;
 
   const itemIds = Object.keys(itemPrices);
   if (itemIds.length === 0 && !manualTotal) return;
+  if (itemIds.length > 500) throw new Error("Too many items in one trip");
 
-  const groupId = await getActiveGroupId(session.user.id);
+  // Validate every client-supplied number up front
+  const prices: Record<string, number> = {};
+  for (const id of itemIds) prices[id] = validPrice(itemPrices[id]);
+  const total = manualTotal !== undefined && manualTotal !== null && manualTotal !== 0
+    ? validPrice(manualTotal)
+    : undefined;
 
-  // Execute atomically in a single transaction with idempotency and duplicate pantry merging
-  await prisma.$transaction(async (tx) => {
-    // 1. Fetch pending items
-    const items = await tx.groceryItem.findMany({
-      where: {
-        id: { in: itemIds },
-        status: "PENDING",
-      },
-      include: { list: true },
-    });
+  const groupId = await getActiveGroupId(userId);
+  const writableGroupId = await getWritableGroupId(userId, groupId);
 
-    // Idempotency: if already processed or empty, skip duplicate creation
-    if (items.length === 0 && !manualTotal) {
-      return;
-    }
-
-    // 2. Update item prices and mark as PURCHASED
-    for (const item of items) {
-      const price = itemPrices[item.id] ?? (item.estimatedPrice ? Number(item.estimatedPrice) : 0);
-      await tx.groceryItem.update({
-        where: { id: item.id },
-        data: {
-          actualPrice: price,
-          status: "PURCHASED",
-          purchasedAt: new Date(),
-          purchasedBy: session.user!.id!,
+  await prisma.$transaction(
+    async (tx) => {
+      // 1. Only PENDING items on lists the user can WRITE to (owner, writable group, or editor share)
+      const items = await tx.groceryItem.findMany({
+        where: {
+          id: { in: itemIds },
+          status: "PENDING",
+          list: {
+            OR: [
+              { ownerId: userId },
+              { groupId: writableGroupId ?? NO_GROUP },
+              { shares: { some: { userId, role: { in: ["EDITOR", "ADMIN"] } } } },
+            ],
+          },
         },
       });
-    }
 
-    // 3. Reconcile totals and create finance transactions
-    const calculatedTotal = items.reduce((sum, item) => {
-      const p = itemPrices[item.id] ?? (item.estimatedPrice ? Number(item.estimatedPrice) : 0);
-      return sum + p;
-    }, 0);
+      // Idempotency: nothing pending (double tap / already processed) => no duplicate expenses
+      if (items.length === 0) return;
 
-    const categoryTotals: Record<string, number> = {};
-    for (const item of items) {
-      const p = itemPrices[item.id] ?? (item.estimatedPrice ? Number(item.estimatedPrice) : 0);
-      const cat = item.category || "Groceries";
-      categoryTotals[cat] = (categoryTotals[cat] || 0) + p;
-    }
+      const priceOf = (item: (typeof items)[number]) =>
+        prices[item.id] ?? (item.estimatedPrice ? Number(item.estimatedPrice) : 0);
 
-    // If manualTotal is specified (e.g. store receipt discrepancy, discounts, tax), scale proportionally
-    const scaleFactor = calculatedTotal > 0 && manualTotal ? manualTotal / calculatedTotal : 1;
+      // 2. Mark purchased (single round trip per item, all inside the transaction)
+      const now = new Date();
+      await Promise.all(
+        items.map((item) =>
+          tx.groceryItem.update({
+            where: { id: item.id },
+            data: { actualPrice: priceOf(item), status: "PURCHASED", purchasedAt: now, purchasedBy: userId },
+          })
+        )
+      );
 
-    let transactionCreated = false;
-    for (const [catName, subtotal] of Object.entries(categoryTotals)) {
-      const adjustedAmount = Math.round(subtotal * scaleFactor * 100) / 100;
-      if (adjustedAmount > 0) {
-        const financeCategory = await getOrCreateFinanceCategory(session.user!.id!, catName);
-        const { encrypt } = await import("@/lib/encryption");
+      // 3. Per-category subtotals in integer cents (no float drift)
+      const centsByCategory: Record<string, number> = {};
+      let calculatedCents = 0;
+      for (const item of items) {
+        const cents = Math.round(priceOf(item) * 100);
+        const cat = item.category || "Groceries";
+        centsByCategory[cat] = (centsByCategory[cat] || 0) + cents;
+        calculatedCents += cents;
+      }
 
+      // Receipt total differs (tax, bag fee, coupon): scale proportionally, push the rounding
+      // remainder onto the largest category so the sum matches the receipt exactly.
+      const targetCents = total !== undefined && calculatedCents > 0 ? Math.round(total * 100) : calculatedCents;
+      const entries = Object.entries(centsByCategory);
+      let allocated = 0;
+      const scaled = entries.map(([cat, cents]) => {
+        const v = calculatedCents > 0 ? Math.round((cents * targetCents) / calculatedCents) : 0;
+        allocated += v;
+        return [cat, v] as [string, number];
+      });
+      if (scaled.length > 0 && allocated !== targetCents) {
+        let big = 0;
+        scaled.forEach(([, v], i) => { if (v > scaled[big][1]) big = i; });
+        scaled[big][1] += targetCents - allocated;
+      }
+
+      let created = false;
+      for (const [catName, cents] of scaled) {
+        if (cents <= 0) continue;
+        const amount = cents / 100;
+        const financeCategory = await getOrCreateFinanceCategory(tx, userId, catName);
         await tx.transaction.create({
           data: {
-            userId: session.user!.id!,
-            groupId,
+            userId,
+            groupId: writableGroupId,
             type: "EXPENSE",
-            amount: adjustedAmount,
-            currency: "USD",
+            amount,
+            currency: DEFAULT_CURRENCY,
             categoryId: financeCategory.id,
-            date: new Date(),
+            date: now,
             description: `Shopping trip (${catName})`,
             paymentMethod: "CASH",
-            encryptedAmount: encrypt(adjustedAmount.toFixed(2), session.user!.id!),
+            encryptedAmount: encrypt(amount.toFixed(2), userId),
           },
         });
-        transactionCreated = true;
+        created = true;
       }
-    }
 
-    if (!transactionCreated && manualTotal && manualTotal > 0) {
-      const financeCategory = await getOrCreateFinanceCategory(session.user!.id!, "Groceries");
-      const { encrypt } = await import("@/lib/encryption");
-
-      await tx.transaction.create({
-        data: {
-          userId: session.user!.id!,
-          groupId,
-          type: "EXPENSE",
-          amount: manualTotal,
-          currency: "USD",
-          categoryId: financeCategory.id,
-          date: new Date(),
-          description: `Shopping trip`,
-          paymentMethod: "CASH",
-          encryptedAmount: encrypt(manualTotal.toFixed(2), session.user!.id!),
-        },
-      });
-    }
-
-    // 4. Pantry Ingestion with Duplicate Stock Merging
-    for (const item of items) {
-      const dynamicLocation = getDynamicLocation(item.category);
-      const expiryDays = getDynamicExpiryDays(item.category);
-      const expiryDate = new Date();
-      expiryDate.setDate(expiryDate.getDate() + expiryDays);
-
-      const categoryId = await findPantryCategoryByName(session.user!.id!, item.category);
-
-      // Check if item with matching name, unit, and location exists to merge quantity
-      const existing = await tx.pantryItem.findFirst({
-        where: {
-          name: { equals: item.name, mode: "insensitive" },
-          unit: item.unit,
-          location: dynamicLocation,
-          OR: [
-            { userId: session.user!.id! },
-            { groupId: groupId || undefined },
-          ],
-        },
-      });
-
-      if (existing) {
-        await tx.pantryItem.update({
-          where: { id: existing.id },
+      if (!created && total && total > 0) {
+        const financeCategory = await getOrCreateFinanceCategory(tx, userId, "Groceries");
+        await tx.transaction.create({
           data: {
-            quantity: { increment: item.quantity },
-            expiryDate: existing.expiryDate && existing.expiryDate > expiryDate
-              ? existing.expiryDate
-              : expiryDate,
+            userId,
+            groupId: writableGroupId,
+            type: "EXPENSE",
+            amount: total,
+            currency: DEFAULT_CURRENCY,
+            categoryId: financeCategory.id,
+            date: now,
+            description: "Shopping trip",
+            paymentMethod: "CASH",
+            encryptedAmount: encrypt(total.toFixed(2), userId),
           },
         });
-      } else {
-        await tx.pantryItem.create({
-          data: {
-            name: item.name,
-            quantity: item.quantity,
+      }
+
+      // 4. Pantry ingestion with duplicate-stock merging
+      for (const item of items) {
+        const dynamicLocation = getDynamicLocation(item.category);
+        const expiryDate = new Date();
+        expiryDate.setDate(expiryDate.getDate() + getDynamicExpiryDays(item.category));
+        const categoryId = await findPantryCategoryByName(tx, userId, item.category);
+
+        const existing = await tx.pantryItem.findFirst({
+          where: {
+            name: { equals: item.name, mode: "insensitive" },
             unit: item.unit,
             location: dynamicLocation,
-            expiryDate,
-            userId: session.user!.id!,
-            groupId,
-            categoryId,
+            OR: [{ userId }, { groupId: writableGroupId ?? NO_GROUP }],
           },
         });
+
+        if (existing) {
+          await tx.pantryItem.update({
+            where: { id: existing.id },
+            data: {
+              quantity: { increment: item.quantity },
+              expiryDate: existing.expiryDate && existing.expiryDate > expiryDate ? existing.expiryDate : expiryDate,
+            },
+          });
+        } else {
+          await tx.pantryItem.create({
+            data: {
+              name: item.name,
+              quantity: item.quantity,
+              unit: item.unit,
+              location: dynamicLocation,
+              expiryDate,
+              userId,
+              groupId: writableGroupId,
+              categoryId,
+            },
+          });
+        }
       }
-    }
-  });
+    },
+    { maxWait: 10_000, timeout: 30_000 }
+  );
 
   revalidatePath("/finance");
   revalidatePath("/groceries");
@@ -549,8 +580,25 @@ export async function deletePantryCategory(id: string) {
     data: { categoryId: null },
   });
 
-  await prisma.pantryCategory.delete({
+  const owned = await prisma.pantryCategory.findFirst({
     where: { id, userId: session.user.id, isSystem: false },
+    select: { id: true },
+  });
+
+  if (!owned) {
+    const sys = await prisma.pantryCategory.findFirst({
+      where: { id, isSystem: true },
+      select: { id: true },
+    });
+    if (!sys) throw new Error("Category not found or cannot be deleted");
+    await prisma.pantryCategory.delete({ where: { id } });
+    revalidatePath("/pantry");
+    revalidatePath("/settings");
+    return;
+  }
+
+  await prisma.pantryCategory.delete({
+    where: { id },
   });
 
   revalidatePath("/pantry");
@@ -566,8 +614,28 @@ export async function updatePantryCategory(id: string, values: z.infer<typeof Up
   const session = await auth();
   if (!session?.user?.id) throw new Error("Unauthorized");
 
-  const category = await prisma.pantryCategory.update({
+  const owned = await prisma.pantryCategory.findFirst({
     where: { id, userId: session.user.id, isSystem: false },
+    select: { id: true },
+  });
+
+  if (!owned) {
+    const sys = await prisma.pantryCategory.findFirst({
+      where: { id, isSystem: true },
+      select: { id: true },
+    });
+    if (!sys) throw new Error("Category not found or cannot be edited");
+    const category = await prisma.pantryCategory.update({
+      where: { id },
+      data: values,
+    });
+    revalidatePath("/pantry");
+    revalidatePath("/settings");
+    return category;
+  }
+
+  const category = await prisma.pantryCategory.update({
+    where: { id },
     data: values,
   });
 
@@ -576,10 +644,10 @@ export async function updatePantryCategory(id: string, values: z.infer<typeof Up
   return category;
 }
 
-async function findPantryCategoryByName(userId: string, categoryName?: string | null) {
+async function findPantryCategoryByName(db: Db, userId: string, categoryName?: string | null) {
   if (!categoryName) return null;
   
-  const category = await prisma.pantryCategory.findFirst({
+  const category = await db.pantryCategory.findFirst({
     where: {
       name: {
         equals: categoryName,
@@ -604,7 +672,7 @@ export async function getPantryItems() {
     where: {
       OR: [
         { userId: session.user.id },
-        { groupId: groupId || undefined },
+        { groupId: groupId ?? NO_GROUP },
       ],
     },
     include: {
@@ -662,7 +730,7 @@ export async function deleteGroceryItem(id: string) {
       OR: [
         { createdBy: session.user.id },
         { list: { ownerId: session.user.id } },
-        { list: { groupId: groupId || undefined } },
+        { list: { groupId: groupId ?? NO_GROUP } },
         { list: { shares: { some: { userId: session.user.id } } } },
       ]
     },
@@ -683,7 +751,7 @@ export async function deletePantryItem(id: string) {
       id,
       OR: [
         { userId: session.user.id },
-        { groupId: groupId || undefined },
+        { groupId: groupId ?? NO_GROUP },
       ],
     },
   });
@@ -702,7 +770,7 @@ export async function updatePantryItem(id: string, values: Partial<z.infer<typeo
       id,
       OR: [
         { userId: session.user.id },
-        { groupId: groupId || undefined },
+        { groupId: groupId ?? NO_GROUP },
       ],
     },
   });
@@ -731,7 +799,7 @@ export async function consumePantryItem(id: string, amount: number = 1) {
       id,
       OR: [
         { userId: session.user.id },
-        { groupId: groupId || undefined },
+        { groupId: groupId ?? NO_GROUP },
       ],
     },
   });
@@ -771,7 +839,7 @@ export async function renameCategory(oldName: string, newName: string) {
       OR: [
         { createdBy: session.user.id },
         { list: { ownerId: session.user.id } },
-        { list: { groupId: groupId || undefined } },
+        { list: { groupId: groupId ?? NO_GROUP } },
       ]
     },
     data: { category: newName }
@@ -792,7 +860,7 @@ export async function moveItemToPantry(itemId: string, location: string = "Pantr
       OR: [
         { createdBy: session.user.id },
         { list: { ownerId: session.user.id } },
-        { list: { groupId: groupId || undefined } },
+        { list: { groupId: groupId ?? NO_GROUP } },
       ]
     },
   });
@@ -804,7 +872,7 @@ export async function moveItemToPantry(itemId: string, location: string = "Pantr
   expiryDate.setDate(expiryDate.getDate() + expiryDays);
   const dynamicLocation = location === "Pantry" ? getDynamicLocation(item.category) : location;
 
-  const categoryId = await findPantryCategoryByName(session.user.id, item.category);
+  const categoryId = await findPantryCategoryByName(prisma, session.user.id, item.category);
 
   await prisma.pantryItem.create({
     data: {
@@ -846,7 +914,7 @@ export async function deleteGroceryList(listId: string) {
       id: listId,
       OR: [
         { ownerId: session.user.id },
-        { groupId: groupId || undefined },
+        { groupId: groupId ?? NO_GROUP },
       ],
     },
   });
@@ -886,7 +954,7 @@ export async function updateGroceryList(values: z.infer<typeof UpdateGroceryList
       id: values.id,
       OR: [
         { ownerId: session.user.id },
-        { groupId: groupId || undefined },
+        { groupId: groupId ?? NO_GROUP },
         { shares: { some: { userId: session.user.id } } },
       ],
     },

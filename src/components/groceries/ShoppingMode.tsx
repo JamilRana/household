@@ -1,6 +1,8 @@
 "use client";
 
 import { useState, useTransition, useEffect } from "react";
+import { toast } from "sonner";
+import { formatMoney } from "@/lib/format";
 import { Check, ArrowLeft, ShoppingBag, ShoppingCart, Tag, ChevronRight, X, CircleDollarSign, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -23,15 +25,29 @@ export function ShoppingMode({ initialItems }: ShoppingModeProps) {
   const [isFinishing, setIsFinishing] = useState(false);
   const router = useRouter();
 
-  const handleToggle = async (itemId: string) => {
-    const item = items.find(i => i.id === itemId);
+  // One tap puts it in the cart. No pop-ups: the price defaults to the estimate and the
+  // receipt total entered at the end is what really counts.
+  const handleToggle = (itemId: string) => {
+    const item = items.find((i) => i.id === itemId);
     if (!item) return;
 
-    const priceStr = prompt(`Enter price for ${item.name}:`, item.estimatedPrice ? Number(item.estimatedPrice).toString() : "");
-    const price = parseFloat(priceStr || "0");
+    const price = item.estimatedPrice ? Number(item.estimatedPrice) * Number(item.quantity || 1) : 0;
+    setPurchasedPrices((prev) => ({ ...prev, [itemId]: price }));
+    setItems((prev) => prev.filter((i) => i.id !== itemId));
 
-    setPurchasedPrices(prev => ({ ...prev, [itemId]: price }));
-    setItems(prev => prev.filter(i => i.id !== itemId));
+    toast(`In the cart: ${item.name}`, {
+      action: {
+        label: "Undo",
+        onClick: () => {
+          setPurchasedPrices((prev) => {
+            const next = { ...prev };
+            delete next[itemId];
+            return next;
+          });
+          setItems((prev) => (prev.some((i) => i.id === itemId) ? prev : [...prev, item]));
+        },
+      },
+    });
   };
 
   const handleFinish = async () => {
@@ -40,7 +56,7 @@ export function ShoppingMode({ initialItems }: ShoppingModeProps) {
       await finalizeShoppingSession(purchasedPrices, parseFloat(manualTotal) || undefined);
       router.push("/groceries");
     } catch (error) {
-      console.error(error);
+      toast.error(error instanceof Error ? error.message : "Could not save the trip. Nothing was lost, try again.");
     } finally {
       setIsFinishing(false);
     }
@@ -52,30 +68,30 @@ export function ShoppingMode({ initialItems }: ShoppingModeProps) {
 
   return (
     <div className="fixed inset-0 bg-background z-50 flex flex-col overflow-y-auto">
-      <header className="p-6 border-b flex items-center justify-between bg-background/80 backdrop-blur-md sticky top-0 z-10">
+      <header className="p-6 border-b flex items-center justify-between bg-background/80 sticky top-0 z-10">
         <div className="flex items-center gap-4">
           <Link href="/groceries">
-            <Button variant="ghost" size="icon" className="rounded-2xl">
+            <Button variant="ghost" size="icon" className="rounded-2xl" aria-label="Back">
               <ArrowLeft className="size-6" />
             </Button>
           </Link>
           <div>
-            <h1 className="text-2xl font-black tracking-tight">Shopping Mode</h1>
+            <h1 className="text-2xl font-semibold tracking-tight">Shopping</h1>
             <p className="text-sm font-medium text-muted-foreground">{items.length} items remaining</p>
           </div>
         </div>
         <div className="flex flex-col items-end gap-1">
           <div className="flex items-center gap-2 text-muted-foreground font-bold text-xs">
-            <span>Est: ${estimatedTotal.toFixed(2)}</span>
+            <span>Est: {formatMoney(estimatedTotal)}</span>
           </div>
-          <div className="flex items-center gap-2 text-primary font-black text-lg">
+          <div className="flex items-center gap-2 text-primary font-semibold text-lg">
             <CircleDollarSign className="size-5" />
-            <span>${actualRunningTotal.toFixed(2)}</span>
+            <span>{formatMoney(actualRunningTotal)}</span>
           </div>
           {items.length === 0 && (
              <Button 
                 onClick={() => setShowFinishPrompt(true)}
-                className="mt-1 h-8 rounded-full bg-emerald-600 hover:bg-emerald-700 font-black text-[10px] uppercase tracking-widest px-4"
+                className="mt-1 h-8 rounded-full bg-emerald-600 hover:bg-emerald-700 font-semibold text-xs px-4"
               >
                 Finish Shopping
               </Button>
@@ -90,13 +106,13 @@ export function ShoppingMode({ initialItems }: ShoppingModeProps) {
               <Check className="size-16" />
             </div>
             <div className="space-y-2">
-              <h2 className="text-3xl font-black">List Complete!</h2>
-              <p className="text-muted-foreground font-medium max-w-xs">You've grabbed everything on your list. Ready to checkout?</p>
+              <h2 className="text-3xl font-semibold">Everything is in the cart</h2>
+              <p className="text-muted-foreground font-medium max-w-xs">That is the whole list. Add the receipt total and you are done.</p>
             </div>
             <div className="flex flex-col gap-3 w-full max-w-xs">
               <Button 
                 onClick={() => setShowFinishPrompt(true)}
-                className="rounded-3xl h-16 font-black text-xl bg-emerald-600 hover:bg-emerald-700 shadow-xl shadow-emerald-200 dark:shadow-none"
+                className="rounded-2xl h-16 font-semibold text-xl bg-emerald-600 hover:bg-emerald-700 shadow-sm"
               >
                 Enter Total & Finish
               </Button>
@@ -111,7 +127,7 @@ export function ShoppingMode({ initialItems }: ShoppingModeProps) {
               <div key={category} className="space-y-4">
                 <div className="flex items-center gap-2 px-2">
                   <div className="size-2 rounded-full bg-primary" />
-                  <h3 className="font-black uppercase tracking-[0.2em] text-xs text-muted-foreground">{category}</h3>
+                  <h3 className="font-semibold text-xs text-muted-foreground">{category}</h3>
                 </div>
                 <div className="grid gap-4">
                   <AnimatePresence mode="popLayout">
@@ -123,15 +139,15 @@ export function ShoppingMode({ initialItems }: ShoppingModeProps) {
                         animate={{ opacity: 1, scale: 1 }}
                         exit={{ opacity: 0, scale: 0.8, x: 20 }}
                         onClick={() => handleToggle(item.id)}
-                        className="p-6 bg-card border-2 rounded-[2.5rem] flex items-center justify-between group cursor-pointer hover:border-primary transition-all shadow-sm active:scale-95 select-none"
+                        className="p-6 bg-card border-2 rounded-2xl flex items-center justify-between group cursor-pointer hover:border-primary transition-all shadow-sm select-none"
                       >
                         <div className="flex items-center gap-5">
                           <div className="size-12 rounded-2xl bg-muted flex items-center justify-center group-hover:bg-primary/10 transition-colors">
                             <Tag className="size-6 text-muted-foreground group-hover:text-primary" />
                           </div>
                           <div>
-                            <p className="font-black text-xl leading-tight">{item.name}</p>
-                            <p className="text-xs font-black text-muted-foreground uppercase tracking-wider mt-1 opacity-60">
+                            <p className="font-semibold text-xl leading-tight">{item.name}</p>
+                            <p className="text-xs font-semibold text-muted-foreground mt-1 opacity-60">
                               {item.quantity} {item.unit} • {item.list?.name}
                             </p>
                           </div>
@@ -156,7 +172,7 @@ export function ShoppingMode({ initialItems }: ShoppingModeProps) {
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[60]"
+              className="fixed inset-0 bg-black/60 z-[60]"
               onClick={() => setShowFinishPrompt(false)}
             />
             <motion.div 
@@ -164,32 +180,32 @@ export function ShoppingMode({ initialItems }: ShoppingModeProps) {
               animate={{ y: 0 }}
               exit={{ y: "100%" }}
               transition={{ type: "spring", damping: 25, stiffness: 200 }}
-              className="fixed bottom-0 left-0 right-0 bg-background rounded-t-[3rem] p-8 z-[70] shadow-2xl border-t"
+              className="fixed bottom-0 left-0 right-0 bg-background rounded-t-[3rem] p-8 z-[70] shadow-md border-t"
             >
               <div className="max-w-md mx-auto space-y-6">
                 <div className="flex justify-between items-center">
-                  <h3 className="text-2xl font-black">Shopping Summary</h3>
+                  <h3 className="text-2xl font-semibold">Shopping Summary</h3>
                   <button onClick={() => setShowFinishPrompt(false)} className="size-10 rounded-full bg-muted flex items-center justify-center">
                     <X className="size-5" />
                   </button>
                 </div>
                 
                 <div className="space-y-4">
-                  <div className="p-6 bg-primary/5 rounded-3xl space-y-1">
-                    <p className="text-xs font-black text-primary uppercase tracking-widest">Calculated Total</p>
-                    <p className="text-4xl font-black tracking-tight">${actualRunningTotal.toFixed(2)}</p>
+                  <div className="p-6 bg-primary/5 rounded-2xl space-y-1">
+                    <p className="text-xs font-semibold text-primary">Calculated Total</p>
+                    <p className="text-4xl font-semibold tracking-tight">{formatMoney(actualRunningTotal)}</p>
                   </div>
 
                   <div className="space-y-2">
-                    <label className="text-xs font-black uppercase tracking-widest text-muted-foreground ml-1">Manual Override (Optional)</label>
+                    <label className="text-xs font-semibold text-muted-foreground ml-1">Manual Override (Optional)</label>
                     <div className="relative">
-                      <span className="absolute left-6 top-1/2 -translate-y-1/2 text-2xl font-black text-muted-foreground">$</span>
+                      <span className="absolute left-6 top-1/2 -translate-y-1/2 text-2xl font-semibold text-muted-foreground">$</span>
                       <Input 
                         type="number"
                         placeholder={actualRunningTotal.toFixed(2)}
                         value={manualTotal}
                         onChange={(e) => setManualTotal(e.target.value)}
-                        className="h-20 pl-12 text-3xl font-black rounded-[2rem] bg-muted/50 border-none focus-visible:ring-4 focus-visible:ring-primary/20"
+                        className="h-20 pl-12 text-3xl font-semibold rounded-2xl bg-muted/50 border-none focus-visible:ring-4 focus-visible:ring-primary/20"
                         autoFocus
                       />
                     </div>
@@ -199,7 +215,7 @@ export function ShoppingMode({ initialItems }: ShoppingModeProps) {
                 <Button 
                   onClick={handleFinish}
                   disabled={isFinishing}
-                  className="w-full h-16 rounded-3xl font-black text-xl bg-primary hover:bg-primary/90 shadow-xl shadow-primary/25"
+                  className="w-full h-16 rounded-2xl font-semibold text-xl bg-primary hover:bg-primary/90 shadow-sm"
                 >
                   {isFinishing ? <Loader2 className="size-6 animate-spin" /> : "Complete Trip"}
                 </Button>
@@ -210,7 +226,7 @@ export function ShoppingMode({ initialItems }: ShoppingModeProps) {
       </AnimatePresence>
 
       {items.length > 0 && (
-        <footer className="p-6 bg-background/80 backdrop-blur-md border-t fixed bottom-0 left-0 right-0 z-10 flex justify-center">
+        <footer className="p-6 bg-background/80 border-t fixed bottom-0 left-0 right-0 z-10 flex justify-center">
            <div className="max-w-2xl w-full flex items-center justify-between gap-6">
               <div className="flex-1 h-3 bg-muted rounded-full overflow-hidden">
                 <motion.div 
@@ -220,10 +236,10 @@ export function ShoppingMode({ initialItems }: ShoppingModeProps) {
                 />
               </div>
               <div className="flex flex-col items-end min-w-[80px]">
-                <span className="text-lg font-black tracking-tighter leading-none">
+                <span className="text-lg font-semibold tracking-tight leading-none">
                   {Math.round((initialItems.length - items.length) / initialItems.length * 100)}%
                 </span>
-                <span className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Complete</span>
+                <span className="text-xs font-semibold text-muted-foreground">Complete</span>
               </div>
            </div>
         </footer>

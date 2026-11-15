@@ -90,6 +90,16 @@ enum SystemRole {
   SUPERADMIN
 }
 
+// Simple DB-backed rate limiter (works on serverless; no extra service needed)
+model RateLimit {
+  key     String   @id
+  count   Int      @default(0)
+  resetAt DateTime @map("reset_at")
+
+  @@index([resetAt])
+  @@map("rate_limits")
+}
+
 model VerificationToken {
   identifier String
   token      String   @unique

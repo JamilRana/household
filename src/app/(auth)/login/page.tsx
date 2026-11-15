@@ -54,7 +54,7 @@ export default function LoginPage() {
       <div className="space-y-1.5">
         <h1 className="text-xl font-semibold tracking-tight text-foreground">Sign in</h1>
         <p className="text-sm text-muted-foreground">
-          Enter your household credentials to access your dashboard.
+          Welcome back. Sign in to pick up where you left off.
         </p>
       </div>
 
@@ -93,6 +93,9 @@ export default function LoginPage() {
               <FormItem className="space-y-1.5">
                 <div className="flex items-center justify-between">
                   <FormLabel className="text-xs font-medium text-foreground">Password</FormLabel>
+                  <Link href="/forgot-password" className="text-xs text-muted-foreground hover:text-foreground hover:underline underline-offset-4">
+                    Forgot password?
+                  </Link>
                 </div>
                 <FormControl>
                   <Input
@@ -126,7 +129,7 @@ export default function LoginPage() {
       <div className="pt-2 border-t border-border text-center text-xs text-muted-foreground">
         Need an account?{" "}
         <Link href="/register" className="font-medium text-primary hover:underline underline-offset-4">
-          Register member
+          Create one
         </Link>
       </div>
     </div>

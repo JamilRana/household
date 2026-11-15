@@ -37,7 +37,7 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
           <div 
             key={n.id} 
             className={cn(
-              "p-4 rounded-2xl shadow-2xl flex items-center gap-3 w-80 animate-in slide-in-from-left-full duration-300 pointer-events-auto border",
+              "p-4 rounded-2xl shadow-md flex items-center gap-3 w-80 animate-in slide-in-from-left-full duration-300 pointer-events-auto border",
               n.type === "success" ? "bg-emerald-600 text-white border-emerald-500" :
               n.type === "warning" ? "bg-amber-500 text-white border-amber-400" : "bg-blue-600 text-white border-blue-500"
             )}

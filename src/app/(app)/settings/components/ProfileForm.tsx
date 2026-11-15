@@ -28,10 +28,10 @@ export function ProfileForm({ name, email }: { name: string; email: string }) {
   };
 
   return (
-    <Card className="border-none shadow-xl bg-white dark:bg-slate-900">
+    <Card className="border-none shadow-md bg-white dark:bg-slate-900">
       <CardContent className="p-6 space-y-5">
         <div className="space-y-2">
-          <Label htmlFor="name" className="text-xs font-black uppercase tracking-widest text-slate-400">Display Name</Label>
+          <Label htmlFor="name" className="text-xs font-semibold text-slate-400">Display Name</Label>
           <Input
             id="name"
             value={currentName}
@@ -41,13 +41,13 @@ export function ProfileForm({ name, email }: { name: string; email: string }) {
           />
         </div>
         <div className="space-y-2">
-          <Label className="text-xs font-black uppercase tracking-widest text-slate-400">Email Address</Label>
+          <Label className="text-xs font-semibold text-slate-400">Email Address</Label>
           <Input
             value={email}
             disabled
             className="text-lg font-medium text-slate-400 bg-slate-50 dark:bg-slate-800"
           />
-          <p className="text-[10px] text-slate-400 font-bold">Email cannot be changed.</p>
+          <p className="text-xs text-slate-400 font-bold">Email cannot be changed.</p>
         </div>
         <Button
           onClick={handleSave}

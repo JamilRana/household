@@ -5,12 +5,28 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { updateGroceryList, deleteGroceryList } from "@/lib/actions/groceries";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+  DialogTrigger,
+} from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
+import {
+  Form,
+  FormControl,
+  FormField,
+  FormItem,
+  FormLabel,
+  FormMessage,
+} from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { Settings, Trash2, Loader2 } from "lucide-react";
 import { useRouter } from "next/navigation";
+import { toast } from "sonner";
 
 const formSchema = z.object({
   name: z.string().min(1, "Name is required"),
@@ -50,9 +66,11 @@ export function EditGroceryListModal({ list }: EditGroceryListModalProps) {
           id: list.id,
           ...values,
         });
+        toast.success("List settings saved");
         setOpen(false);
-      } catch (error) {
+      } catch (error: any) {
         console.error(error);
+        toast.error(error.message || "Failed to update list");
       }
     });
   }
@@ -61,102 +79,129 @@ export function EditGroceryListModal({ list }: EditGroceryListModalProps) {
     setIsDeleting(true);
     try {
       await deleteGroceryList(list.id);
+      toast.success("Grocery list deleted");
       setOpen(false);
       router.push("/groceries");
       router.refresh();
-    } catch (error) {
+    } catch (error: any) {
       console.error(error);
+      toast.error(error.message || "Failed to delete list");
       setIsDeleting(false);
     }
   }
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild>
-        <Button variant="ghost" size="icon" className="rounded-xl border border-slate-200 dark:border-slate-800">
-          <Settings className="h-4 w-4 text-slate-500" />
-        </Button>
-      </DialogTrigger>
-      <DialogContent className="sm:max-w-[425px]">
-        <DialogHeader>
-          <DialogTitle>Edit Shopping List</DialogTitle>
+      <DialogTrigger
+        render={
+          <Button
+            variant="ghost"
+            size="icon-xs"
+            className="size-8 text-muted-foreground hover:text-foreground"
+            aria-label="Settings"
+          >
+            <Settings className="size-4" />
+          </Button>
+        }
+      />
+      <DialogContent className="w-full sm:max-w-md p-5 sm:p-6 rounded-xl border border-border bg-card shadow-lg max-h-[90vh] overflow-y-auto">
+        <DialogHeader className="space-y-1 pb-2">
+          <DialogTitle className="text-base sm:text-lg font-semibold tracking-tight text-foreground">
+            Edit Grocery List
+          </DialogTitle>
+          <DialogDescription className="text-xs text-muted-foreground">
+            Update list title, default store location, or remove list.
+          </DialogDescription>
         </DialogHeader>
+
         <Form {...form}>
-          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4 pt-4">
+          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4 pt-2">
             <FormField
               control={form.control}
               name="name"
               render={({ field }) => (
-                <FormItem>
-                  <FormLabel>List Name</FormLabel>
+                <FormItem className="space-y-1.5">
+                  <FormLabel className="text-xs font-medium text-foreground">List Name</FormLabel>
                   <FormControl>
-                    <Input placeholder="Weekly Groceries" {...field} />
+                    <Input placeholder="Weekly Groceries" {...field} className="h-9" />
                   </FormControl>
-                  <FormMessage />
+                  <FormMessage className="text-xs" />
                 </FormItem>
               )}
             />
+
             <FormField
               control={form.control}
               name="defaultStore"
               render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Default Store (Optional)</FormLabel>
+                <FormItem className="space-y-1.5">
+                  <FormLabel className="text-xs font-medium text-foreground">
+                    Default Store <span className="text-muted-foreground font-normal">(optional)</span>
+                  </FormLabel>
                   <FormControl>
-                    <Input placeholder="Walmart, Whole Foods..." {...field} />
+                    <Input placeholder="e.g. Walmart, Whole Foods..." {...field} className="h-9" />
                   </FormControl>
-                  <FormMessage />
+                  <FormMessage className="text-xs" />
                 </FormItem>
               )}
             />
-            <div className="flex flex-col gap-3 pt-2">
-              {showConfirm ? (
-                <div className="flex flex-col gap-2 p-3 bg-rose-50 dark:bg-rose-950/20 border border-rose-100 dark:border-rose-900/30 rounded-2xl w-full">
-                  <p className="text-xs font-black text-rose-600 dark:text-rose-400">
-                    Are you absolutely sure you want to delete this list?
-                  </p>
-                  <div className="flex gap-2">
-                    <Button
-                      type="button"
-                      variant="destructive"
-                      disabled={isDeleting}
-                      onClick={handleDelete}
-                      className="flex-1 py-4 text-xs font-bold rounded-xl"
-                    >
-                      {isDeleting ? <Loader2 className="h-3 w-3 animate-spin" /> : "Yes, Delete"}
-                    </Button>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      disabled={isDeleting}
-                      onClick={() => setShowConfirm(false)}
-                      className="flex-1 py-4 text-xs font-bold rounded-xl"
-                    >
-                      Cancel
-                    </Button>
-                  </div>
-                </div>
-              ) : (
-                <div className="flex gap-3 w-full">
-                  <Button 
-                    type="button" 
+
+            {showConfirm ? (
+              <div className="p-3 bg-destructive/10 border border-destructive/20 rounded-lg space-y-2">
+                <p className="text-xs font-medium text-destructive">
+                  Are you sure you want to delete this list and all its items?
+                </p>
+                <div className="flex gap-2">
+                  <Button
+                    type="button"
                     variant="destructive"
-                    disabled={isPending || isDeleting}
-                    onClick={() => setShowConfirm(true)}
-                    className="w-12 h-11 shrink-0 rounded-xl"
+                    size="sm"
+                    disabled={isDeleting}
+                    onClick={handleDelete}
+                    className="flex-1 text-xs"
                   >
-                    <Trash2 className="h-4 w-4" />
+                    {isDeleting ? "Deleting..." : "Confirm Delete"}
                   </Button>
-                  <Button 
-                    type="submit" 
-                    disabled={isPending || isDeleting}
-                    className="flex-1 bg-emerald-600 hover:bg-emerald-700 py-6 text-base font-bold rounded-xl"
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    disabled={isDeleting}
+                    onClick={() => setShowConfirm(false)}
+                    className="flex-1 text-xs"
                   >
-                    {isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : "Save Changes"}
+                    Cancel
                   </Button>
                 </div>
-              )}
-            </div>
+              </div>
+            ) : (
+              <DialogFooter className="pt-2 flex items-center justify-between gap-2">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon-sm"
+                  onClick={() => setShowConfirm(true)}
+                  className="text-muted-foreground hover:text-destructive"
+                  title="Delete list"
+                >
+                  <Trash2 className="size-4" />
+                </Button>
+                <div className="flex gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setOpen(false)}
+                    disabled={isPending}
+                  >
+                    Cancel
+                  </Button>
+                  <Button type="submit" size="sm" disabled={isPending}>
+                    {isPending ? "Saving..." : "Save Changes"}
+                  </Button>
+                </div>
+              </DialogFooter>
+            )}
           </form>
         </Form>
       </DialogContent>

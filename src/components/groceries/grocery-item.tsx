@@ -1,33 +1,57 @@
 "use client";
 
+import { useState } from "react";
+import { toast } from "sonner";
 import { CheckCircle2, Circle, ShoppingBasket, Trash2, Info } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import type { ItemStatus } from "@prisma/client";
 import { updateItemStatus, deleteGroceryItem } from "@/lib/actions/groceries";
+import { formatMoney } from "@/lib/format";
 
 interface GroceryItemProps {
   item: any;
 }
 
 export function GroceryItemCard({ item }: GroceryItemProps) {
-  const isPurchased = item.status === "PURCHASED";
-  const isUnavailable = item.status === "UNAVAILABLE";
+  // Show the change instantly; the server confirms (or we roll back) a moment later.
+  const [override, setOverride] = useState<boolean | null>(null);
+  const [removed, setRemoved] = useState(false);
+  const isPurchased = override ?? item.status === "PURCHASED";
+
+  const setPurchased = async (purchased: boolean) => {
+    setOverride(purchased);
+    try {
+      await updateItemStatus(item.id, purchased ? "PURCHASED" : "PENDING");
+    } catch (err) {
+      setOverride(null);
+      toast.error(err instanceof Error ? err.message : "Could not update the item");
+      return false;
+    }
+    setOverride(null);
+    return true;
+  };
 
   const handleToggle = async () => {
-    const newStatus = isPurchased ? "PENDING" : "PURCHASED";
-    let actualPrice;
-    
-    if (newStatus === "PURCHASED") {
-      const priceStr = prompt(`Enter actual price for ${item.name} (optional):`, item.estimatedPrice ? Number(item.estimatedPrice).toString() : "");
-      if (priceStr !== null) {
-        actualPrice = parseFloat(priceStr);
-      }
+    const next = !isPurchased;
+    const ok = await setPurchased(next);
+    if (ok && next) {
+      toast(`Bought ${item.name}`, { action: { label: "Undo", onClick: () => setPurchased(false) } });
     }
-    
-    await updateItemStatus(item.id, newStatus, actualPrice);
   };
+
+  const handleDelete = async () => {
+    setRemoved(true);
+    try {
+      await deleteGroceryItem(item.id);
+    } catch (err) {
+      setRemoved(false);
+      toast.error(err instanceof Error ? err.message : "Could not remove the item");
+    }
+  };
+
+  if (removed) return null;
 
   return (
     <div className={cn(
@@ -36,6 +60,8 @@ export function GroceryItemCard({ item }: GroceryItemProps) {
     )}>
       <button 
         onClick={handleToggle}
+        aria-label={isPurchased ? `Put ${item.name} back on the list` : `Mark ${item.name} as bought`}
+        aria-pressed={isPurchased}
         className={cn(
           "shrink-0 transition-colors",
           isPurchased ? "text-emerald-500" : "text-slate-300 hover:text-emerald-600"
@@ -57,26 +83,25 @@ export function GroceryItemCard({ item }: GroceryItemProps) {
             {Number(item.quantity)} {item.unit}
           </span>
           {item.actualPrice && (
-            <span className="text-xs px-1.5 py-0.5 rounded-md bg-emerald-100 dark:bg-emerald-900/30 text-emerald-600 font-black">
-              ${Number(item.actualPrice).toFixed(2)}
+            <span className="text-xs px-1.5 py-0.5 rounded-md bg-emerald-100 dark:bg-emerald-900/30 text-emerald-600 font-semibold">
+              {formatMoney(item.actualPrice)}
             </span>
           )}
         </div>
         {item.category && (
-          <span className="text-[10px] uppercase tracking-wider font-black text-emerald-600/60">
+          <span className="text-xs font-semibold text-emerald-600/60">
             {item.category}
           </span>
         )}
       </div>
 
-      <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+      <div className="flex items-center gap-1 md:opacity-0 md:group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
         <Button 
           variant="ghost" 
           size="icon" 
           className="h-8 w-8 text-slate-400 hover:text-red-500"
-          onClick={async () => {
-            await deleteGroceryItem(item.id);
-          }}
+          onClick={handleDelete}
+          aria-label={`Remove ${item.name}`}
         >
           <Trash2 className="h-4 w-4" />
         </Button>

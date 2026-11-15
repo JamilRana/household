@@ -53,14 +53,15 @@ const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
     // If 'render' is provided and it's not a button, we should set nativeButton={false} 
     // to avoid the Base UI warning and ensure correct semantics.
     const isNativeButton = !props.render;
+    const { "data-slot": dataSlot, ...rest } = props as any;
 
     return (
       <Comp
         ref={ref}
-        data-slot="button"
+        data-slot={dataSlot || "button"}
         nativeButton={isNativeButton}
         className={cn(buttonVariants({ variant, size, className }))}
-        {...props}
+        {...rest}
       />
     )
   }

@@ -20,7 +20,6 @@ function DialogTrigger({
   if (asChild) {
     return (
       <DialogPrimitive.Trigger 
-        data-slot="dialog-trigger" 
         {...props} 
         nativeButton={nativeButton}
         render={children as any} 

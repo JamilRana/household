@@ -5,6 +5,7 @@ import authConfig from "./auth.config";
 import Credentials from "next-auth/providers/credentials";
 import { LoginSchema } from "./validations/auth";
 import bcrypt from "bcryptjs";
+import { rateLimit, clearRateLimit, clientIp } from "@/lib/rate-limit";
 
 export const {
   handlers,
@@ -52,17 +53,32 @@ export const {
   providers: [
     ...authConfig.providers,
     Credentials({
-      async authorize(credentials) {
+      async authorize(credentials, request) {
         const validatedFields = LoginSchema.safeParse(credentials);
 
         if (validatedFields.success) {
           const { email, password } = validatedFields.data;
+          const normalizedEmail = email.toLowerCase();
+
+          // Brute-force protection: per account AND per network address
+          const ip = request?.headers ? clientIp(request.headers) : "unknown";
+          const emailKey = `login:${normalizedEmail}`;
+          const [byEmail, byIp] = await Promise.all([
+            rateLimit(emailKey, 8, 15 * 60 * 1000),
+            rateLimit(`login-ip:${ip}`, 40, 15 * 60 * 1000),
+          ]);
+          if (!byEmail.ok || !byIp.ok) return null;
 
           const user = await prisma.user.findUnique({
-            where: { email: email.toLowerCase() },
+            where: { email: normalizedEmail },
           });
 
           if (!user || !user.password || !user.isActive || user.deletedAt) {
+            return null;
+          }
+
+          // Opt-in: set REQUIRE_EMAIL_VERIFICATION=true once mail is configured
+          if (process.env.REQUIRE_EMAIL_VERIFICATION === "true" && !user.emailVerified) {
             return null;
           }
 
@@ -71,7 +87,10 @@ export const {
             user.password,
           );
 
-          if (passwordsMatch) return user;
+          if (passwordsMatch) {
+            await clearRateLimit(emailKey);
+            return user;
+          }
         }
 
         return null;

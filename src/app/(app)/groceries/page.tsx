@@ -1,10 +1,13 @@
+import { redirect } from "next/navigation";
+import { NO_GROUP } from "@/lib/scope";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { 
   ShoppingBasket, 
   ShoppingCart, 
   Plus, 
-  Layers 
+  CheckCircle2,
+  FolderKanban
 } from "lucide-react";
 import Link from "next/link";
 import { getGroceryLists } from "@/lib/actions/groceries";
@@ -13,9 +16,11 @@ import { CategoryManager } from "@/components/groceries/CategoryManager";
 import { getActiveGroupId } from "@/lib/actions/user";
 import { GroceryListWithFilters } from "@/components/groceries/GroceryListWithFilters";
 
+export const metadata = { title: "Groceries" };
+
 export default async function GroceriesPage() {
   const session = await auth();
-  if (!session?.user?.id) return null;
+  if (!session?.user?.id) redirect("/login");
 
   const groupId = await getActiveGroupId(session.user.id);
   const lists = await getGroceryLists(groupId);
@@ -36,7 +41,7 @@ export default async function GroceriesPage() {
       OR: [
         { createdBy: session.user.id },
         { list: { ownerId: session.user.id } },
-        { list: { groupId: groupId || undefined } },
+        { list: { groupId: groupId ?? NO_GROUP } },
         { list: { shares: { some: { userId: session.user.id } } } },
       ],
     },
@@ -54,38 +59,66 @@ export default async function GroceriesPage() {
   }));
 
   const pendingCount = groceryItems.filter(i => i.status === "PENDING").length;
+  const purchasedCount = groceryItems.filter(i => i.status === "PURCHASED").length;
 
   return (
-    <div className="p-6 md:p-8 max-w-5xl mx-auto space-y-6">
-      {/* Header */}
-      <header className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-border pb-6">
-        <div className="space-y-1">
-          <h1 className="text-2xl font-semibold tracking-tight text-foreground">
-            Groceries
-          </h1>
-          <p className="text-sm text-muted-foreground">
-            {pendingCount === 0 ? "Shopping list is empty." : `${pendingCount} item${pendingCount > 1 ? "s" : ""} to buy.`}
+    <div className="w-full space-y-6">
+      {/* Galley Page Header */}
+      <div className="page-head-galley">
+        <div>
+          <div className="flex items-center gap-2.5">
+            <h1>Groceries</h1>
+            <span className="text-xs px-2.5 py-0.5 rounded-full bg-primary/10 text-primary font-semibold border border-primary/20">
+              Shopping Workspace
+            </span>
+          </div>
+          <p>
+            {pendingCount === 0
+              ? "All lists are clear. Nothing pending to purchase."
+              : `${pendingCount} item${pendingCount > 1 ? "s" : ""} pending across your household lists.`}
           </p>
         </div>
 
-        <div className="flex items-center gap-2">
-          <Link
-            href="/groceries/shopping"
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium border border-border rounded-lg bg-card hover:bg-muted/60 transition-colors"
-          >
-            <ShoppingCart className="size-3.5" />
-            <span>Shopping mode</span>
+        <div className="flex flex-wrap items-center gap-2.5">
+          <Link href="/groceries/shopping" className="btn-galley-secondary">
+            <ShoppingCart className="size-4 text-primary" />
+            <span>Shopping Mode</span>
           </Link>
           <CategoryManager initialCategories={categories} />
           <AddGroceryItemModal lists={lists} categories={categories} />
         </div>
-      </header>
+      </div>
 
-      {/* Grocery Items List */}
-      <section className="bg-card border border-border rounded-xl p-4">
-        <GroceryListWithFilters 
-          initialItems={groceryItems} 
-        />
+      {/* Galley Stat Strip */}
+      <div className="stat-strip-galley">
+        <div>
+          <span className="stat-label">TO BUY</span>
+          <b className="stat-val">{pendingCount}</b>
+          <small className="stat-sub">Pending items</small>
+        </div>
+
+        <div>
+          <span className="stat-label">PURCHASED</span>
+          <b className="stat-val text-emerald-600 dark:text-emerald-400">{purchasedCount}</b>
+          <small className="stat-sub">Completed recently</small>
+        </div>
+
+        <div>
+          <span className="stat-label">TOTAL ITEMS</span>
+          <b className="stat-val">{groceryItems.length}</b>
+          <small className="stat-sub">In current registry</small>
+        </div>
+
+        <div>
+          <span className="stat-label">ACTIVE LISTS</span>
+          <b className="stat-val">{lists.length}</b>
+          <small className="stat-sub">Stores & categories</small>
+        </div>
+      </div>
+
+      {/* Grocery Items List in Galley Card */}
+      <section className="galley-card">
+        <GroceryListWithFilters initialItems={groceryItems} />
       </section>
     </div>
   );

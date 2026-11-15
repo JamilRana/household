@@ -24,12 +24,12 @@ export function KanbanColumn({ id, title, tasks }: KanbanColumnProps) {
   });
 
   return (
-    <div className="flex flex-col w-[350px] min-w-[350px] bg-slate-100/30 dark:bg-slate-900/30 rounded-[2.5rem] p-5 space-y-6 border border-slate-100/50 dark:border-slate-800/50">
-      <div className="flex items-center justify-between px-3">
-        <h3 className="text-[11px] font-black uppercase tracking-[0.3em] text-slate-400">
+    <div className="flex flex-col w-[320px] min-w-[320px] bg-muted/30 rounded-xl p-3.5 space-y-3 border border-border/60">
+      <div className="flex items-center justify-between px-1">
+        <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
           {title}
         </h3>
-        <span className="bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 text-[10px] px-2.5 py-1 rounded-full font-black shadow-sm">
+        <span className="bg-card text-muted-foreground text-xs px-2 py-0.5 rounded-full font-medium border border-border shadow-2xs">
           {tasks.length}
         </span>
       </div>
@@ -37,19 +37,19 @@ export function KanbanColumn({ id, title, tasks }: KanbanColumnProps) {
       <div
         ref={setNodeRef}
         className={cn(
-          "flex-1 flex flex-col gap-4 min-h-[400px] transition-all duration-300 rounded-[2rem] p-1",
-          isOver && "bg-blue-500/5 ring-2 ring-blue-500/20 ring-inset"
+          "flex-1 flex flex-col gap-2 min-h-[400px] transition-colors rounded-lg p-0.5",
+          isOver && "bg-primary/5 ring-1 ring-primary/30 ring-inset"
         )}
       >
-        <SortableContext items={tasks.map(t => t.id)} strategy={verticalListSortingStrategy}>
+        <SortableContext items={tasks.map((t) => t.id)} strategy={verticalListSortingStrategy}>
           {tasks.map((task) => (
             <SortableTaskCard key={task.id} task={task} />
           ))}
         </SortableContext>
-        
+
         {tasks.length === 0 && (
-          <div className="flex-1 flex items-center justify-center border-2 border-dashed border-slate-200 dark:border-slate-800 rounded-[2rem] opacity-30">
-            <p className="text-xs font-bold uppercase tracking-widest">Drop here</p>
+          <div className="flex-1 flex items-center justify-center border border-dashed border-border/80 rounded-lg">
+            <p className="text-xs text-muted-foreground/60">Drop tasks here</p>
           </div>
         )}
       </div>

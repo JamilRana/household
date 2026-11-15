@@ -5,82 +5,126 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { createGroceryList } from "@/lib/actions/groceries";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+  DialogTrigger,
+} from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
+import {
+  Form,
+  FormControl,
+  FormField,
+  FormItem,
+  FormLabel,
+  FormMessage,
+} from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { Plus } from "lucide-react";
+import { toast } from "sonner";
 
 const formSchema = z.object({
-  name: z.string().min(1, "Name is required"),
-  description: z.string().optional(),
+  name: z.string().min(1, "List name is required"),
   defaultStore: z.string().optional(),
 });
 
 export function AddGroceryListModal() {
   const [open, setOpen] = useState(false);
+  const [loading, setLoading] = useState(false);
 
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
     defaultValues: {
       name: "",
-      description: "",
       defaultStore: "",
     },
   });
 
   async function onSubmit(values: z.infer<typeof formSchema>) {
+    setLoading(true);
     try {
       await createGroceryList(values);
+      toast.success("Grocery list created");
       setOpen(false);
-      form.reset();
-    } catch (error) {
+      form.reset({ name: "", defaultStore: "" });
+    } catch (error: any) {
       console.error(error);
+      toast.error(error.message || "Failed to create list");
+    } finally {
+      setLoading(false);
     }
   }
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild>
-        <Button variant="ghost" size="icon" className="h-8 w-8 text-emerald-600">
-          <Plus className="h-4 w-4" />
-        </Button>
-      </DialogTrigger>
-      <DialogContent className="sm:max-w-[425px]">
-        <DialogHeader>
-          <DialogTitle>Create New List</DialogTitle>
+      <DialogTrigger
+        render={
+          <Button size="sm" className="h-8 sm:h-9 text-xs font-medium gap-1.5 shadow-2xs">
+            <Plus className="size-3.5" />
+            <span>New List</span>
+          </Button>
+        }
+      />
+      <DialogContent className="w-full sm:max-w-md p-5 sm:p-6 rounded-xl border border-border bg-card shadow-lg max-h-[90vh] overflow-y-auto">
+        <DialogHeader className="space-y-1 pb-2">
+          <DialogTitle className="text-base sm:text-lg font-semibold tracking-tight text-foreground">
+            Create Grocery List
+          </DialogTitle>
+          <DialogDescription className="text-xs text-muted-foreground">
+            Group shopping items by store or trip.
+          </DialogDescription>
         </DialogHeader>
+
         <Form {...form}>
-          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4 pt-4">
+          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4 pt-2">
             <FormField
               control={form.control}
               name="name"
               render={({ field }) => (
-                <FormItem>
-                  <FormLabel>List Name</FormLabel>
+                <FormItem className="space-y-1.5">
+                  <FormLabel className="text-xs font-medium text-foreground">List Name</FormLabel>
                   <FormControl>
-                    <Input placeholder="Weekly Groceries" {...field} />
+                    <Input placeholder="e.g. Weekly Supermarket, Costco..." {...field} className="h-9" />
                   </FormControl>
-                  <FormMessage />
+                  <FormMessage className="text-xs" />
                 </FormItem>
               )}
             />
+
             <FormField
               control={form.control}
               name="defaultStore"
               render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Default Store (Optional)</FormLabel>
+                <FormItem className="space-y-1.5">
+                  <FormLabel className="text-xs font-medium text-foreground">
+                    Default Store <span className="text-muted-foreground font-normal">(optional)</span>
+                  </FormLabel>
                   <FormControl>
-                    <Input placeholder="Walmart, Whole Foods..." {...field} />
+                    <Input placeholder="e.g. Trader Joe's, Target..." {...field} className="h-9" />
                   </FormControl>
-                  <FormMessage />
+                  <FormMessage className="text-xs" />
                 </FormItem>
               )}
             />
-            <Button type="submit" className="w-full bg-emerald-600 hover:bg-emerald-700">
-              Create List
-            </Button>
+
+            <DialogFooter className="pt-2">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setOpen(false)}
+                disabled={loading}
+              >
+                Cancel
+              </Button>
+              <Button type="submit" size="sm" disabled={loading}>
+                {loading ? "Creating..." : "Create List"}
+              </Button>
+            </DialogFooter>
           </form>
         </Form>
       </DialogContent>

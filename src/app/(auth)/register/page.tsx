@@ -45,7 +45,7 @@ export default function RegisterPage() {
       if (data?.error) {
         setError(data.error);
       } else {
-        setSuccess("Account registered successfully. You can now sign in.");
+        setSuccess("Your account is ready. You can sign in now.");
         form.reset();
       }
     } catch {

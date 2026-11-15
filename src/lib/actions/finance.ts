@@ -1,5 +1,7 @@
 "use server";
 
+import { DEFAULT_CURRENCY } from "@/lib/format";
+import { NO_GROUP } from "@/lib/scope";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { getActiveGroupId } from "@/lib/actions/user";
@@ -38,9 +40,12 @@ export async function createCategory(values: z.infer<typeof CreateCategorySchema
   const session = await auth();
   if (!session?.user?.id) throw new Error("Unauthorized");
 
+  const parsed = CreateCategorySchema.parse(values);
   const category = await prisma.category.create({
     data: {
-      ...values,
+      name: parsed.name.trim().slice(0, 60),
+      type: parsed.type,
+      color: /^#[0-9a-fA-F]{6}$/.test(parsed.color) ? parsed.color : "#3B82F6",
       userId: session.user.id,
     },
   });
@@ -53,15 +58,43 @@ export async function deleteCategory(id: string) {
   const session = await auth();
   if (!session?.user?.id) throw new Error("Unauthorized");
 
-  await prisma.category.delete({
-    where: { id },
+  const owned = await prisma.category.findFirst({
+    where: { id, userId: session.user.id, isSystem: false },
+    select: { id: true },
   });
 
+  if (!owned) {
+    const sys = await prisma.category.findFirst({
+      where: { id, isSystem: true },
+    });
+    if (!sys) throw new Error("Category not found or cannot be deleted");
+
+    const inUse = await prisma.transaction.count({ where: { categoryId: id } });
+    if (inUse > 0) {
+      await prisma.category.update({ where: { id }, data: { isArchived: true } });
+    } else {
+      await prisma.category.delete({ where: { id } });
+    }
+    revalidatePath("/finance");
+    revalidatePath("/settings");
+    return;
+  }
+
+  const inUse = await prisma.transaction.count({ where: { categoryId: id } });
+  if (inUse > 0) {
+    // Keep history intact: archive instead of deleting a category that has transactions
+    await prisma.category.update({ where: { id }, data: { isArchived: true } });
+  } else {
+    await prisma.category.delete({ where: { id } });
+  }
+
   revalidatePath("/finance");
+  revalidatePath("/settings");
 }
 
 const UpdateCategorySchema = z.object({
   name: z.string().min(1, "Name is required").optional(),
+  type: z.nativeEnum(TransactionType).optional(),
   color: z.string().optional(),
 });
 
@@ -69,13 +102,45 @@ export async function updateCategory(id: string, values: z.infer<typeof UpdateCa
   const session = await auth();
   if (!session?.user?.id) throw new Error("Unauthorized");
 
+  const parsed = UpdateCategorySchema.parse(values);
+  const owned = await prisma.category.findFirst({
+    where: { id, userId: session.user.id, isSystem: false },
+    select: { id: true },
+  });
+
+  if (!owned) {
+    const sys = await prisma.category.findFirst({
+      where: { id, isSystem: true },
+    });
+    if (!sys) throw new Error("Category not found or cannot be edited");
+
+    const category = await prisma.category.update({
+      where: { id },
+      data: {
+        ...(parsed.name ? { name: parsed.name.trim().slice(0, 60) } : {}),
+        ...(parsed.type ? { type: parsed.type } : {}),
+        ...(parsed.color && /^#[0-9a-fA-F]{6}$/.test(parsed.color) ? { color: parsed.color } : {}),
+      },
+    });
+
+    revalidatePath("/finance");
+    revalidatePath("/groceries");
+    revalidatePath("/settings");
+    return category;
+  }
+
   const category = await prisma.category.update({
     where: { id },
-    data: values,
+    data: {
+      ...(parsed.name ? { name: parsed.name.trim().slice(0, 60) } : {}),
+      ...(parsed.type ? { type: parsed.type } : {}),
+      ...(parsed.color && /^#[0-9a-fA-F]{6}$/.test(parsed.color) ? { color: parsed.color } : {}),
+    },
   });
 
   revalidatePath("/finance");
   revalidatePath("/groceries");
+  revalidatePath("/settings");
   return category;
 }
 
@@ -84,7 +149,7 @@ export async function updateCategory(id: string, values: z.infer<typeof UpdateCa
 const CreateTransactionSchema = z.object({
   type: z.nativeEnum(TransactionType),
   amount: z.number().positive(),
-  currency: z.string().default("USD"),
+  currency: z.string().default(DEFAULT_CURRENCY),
   categoryId: z.string(),
   date: z.date(),
   description: z.string().optional(),
@@ -97,7 +162,15 @@ export async function createTransaction(values: z.infer<typeof CreateTransaction
   const session = await auth();
   if (!session?.user?.id) throw new Error("Unauthorized");
 
-  const { amount, ...rest } = values;
+  const parsedTx = CreateTransactionSchema.parse(values);
+  const { amount, ...rest } = parsedTx;
+  if (amount > 1_000_000_000) throw new Error("Amount too large");
+
+  const categoryOk = await prisma.category.findFirst({
+    where: { id: rest.categoryId, OR: [{ userId: session.user.id }, { isSystem: true }] },
+    select: { id: true },
+  });
+  if (!categoryOk) throw new Error("Category not found");
 
   // Encrypt the amount for storage bound with GCM AAD to user
   const encryptedAmount = encrypt(amount.toFixed(2), session.user.id);
@@ -139,7 +212,7 @@ export async function getTransactions(options: {
         {
           OR: [
             { userId: session.user.id },
-            { groupId: groupId || undefined },
+            { groupId: groupId ?? NO_GROUP },
           ],
         },
         type ? { type } : {},
@@ -184,7 +257,7 @@ export async function getBudgets() {
     where: {
       OR: [
         { userId: userId },
-        { groupId: groupId || undefined },
+        { groupId: groupId ?? NO_GROUP },
       ],
     },
     include: { category: true },
@@ -202,7 +275,7 @@ export async function getBudgets() {
           },
           OR: [
             { userId: userId },
-            { groupId: groupId || undefined },
+            { groupId: groupId ?? NO_GROUP },
           ],
         },
         _sum: {
@@ -227,18 +300,25 @@ const CreateBudgetSchema = z.object({
   categoryId: z.string(),
   amount: z.number().positive(),
   period: z.nativeEnum(BudgetPeriod).default(BudgetPeriod.MONTHLY),
-  startDate: z.date().default(new Date()),
+  startDate: z.date().default(() => new Date()),
 });
 
 export async function createBudget(values: z.infer<typeof CreateBudgetSchema>) {
   const session = await auth();
   if (!session?.user?.id) throw new Error("Unauthorized");
 
+  const validatedBudget = CreateBudgetSchema.parse(values);
+  const budgetCategory = await prisma.category.findFirst({
+    where: { id: validatedBudget.categoryId, OR: [{ userId: session.user.id }, { isSystem: true }] },
+    select: { id: true },
+  });
+  if (!budgetCategory) throw new Error("Category not found");
+
   const groupId = await getActiveGroupId(session.user.id);
 
   const budget = await prisma.budget.create({
     data: {
-      ...values,
+      ...validatedBudget,
       userId: session.user.id,
       groupId,
     },
@@ -279,12 +359,12 @@ export async function deleteBudget(id: string) {
 const CreateRecurringRuleSchema = z.object({
   type: z.nativeEnum(TransactionType),
   amount: z.number().positive(),
-  currency: z.string().default("USD"),
+  currency: z.string().default(DEFAULT_CURRENCY),
   categoryId: z.string(),
   description: z.string().optional(),
   paymentMethod: z.nativeEnum(PaymentMethod).default(PaymentMethod.CASH),
   frequency: z.nativeEnum(Recurrence),
-  startDate: z.date().default(new Date()),
+  startDate: z.date().default(() => new Date()),
   endDate: z.date().optional().nullable(),
 });
 
@@ -293,6 +373,11 @@ export async function createRecurringRule(values: z.infer<typeof CreateRecurring
   if (!session?.user?.id) throw new Error("Unauthorized");
 
   const validated = CreateRecurringRuleSchema.parse(values);
+  const ruleCategory = await prisma.category.findFirst({
+    where: { id: validated.categoryId, OR: [{ userId: session.user.id }, { isSystem: true }] },
+    select: { id: true },
+  });
+  if (!ruleCategory) throw new Error("Category not found");
   const groupId = await getActiveGroupId(session.user.id);
 
   const rule = await prisma.recurringRule.create({
@@ -316,7 +401,7 @@ export async function getRecurringRules() {
 
   return await prisma.recurringRule.findMany({
     where: {
-      OR: [{ userId: session.user.id }, { groupId: groupId || undefined }],
+      OR: [{ userId: session.user.id }, { groupId: groupId ?? NO_GROUP }],
       isActive: true,
     },
     include: { category: true },
@@ -354,7 +439,7 @@ export async function getFinanceStats() {
       where: {
         OR: [
           { userId: userId },
-          { groupId: groupId || undefined },
+          { groupId: groupId ?? NO_GROUP },
         ],
         date: { gte: currentStart, lte: currentEnd },
       },
@@ -363,7 +448,7 @@ export async function getFinanceStats() {
       where: {
         OR: [
           { userId: userId },
-          { groupId: groupId || undefined },
+          { groupId: groupId ?? NO_GROUP },
         ],
         date: { gte: lastMonthStart, lte: lastMonthEnd },
       },
@@ -406,7 +491,7 @@ export async function getMonthlyBreakdown() {
     where: {
       OR: [
         { userId: userId },
-        { groupId: groupId || undefined },
+        { groupId: groupId ?? NO_GROUP },
       ],
     },
     select: {

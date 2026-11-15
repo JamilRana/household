@@ -114,9 +114,7 @@ export async function acceptInvitation(rawToken: string) {
         groupId: invitation.groupId,
         role: "MEMBER",
       },
-      update: {
-        role: "MEMBER",
-      },
+      update: {}, // existing members keep their current role (never demote an OWNER/ADMIN)
     }),
     prisma.groupInvitation.update({
       where: { id: invitation.id },
@@ -225,6 +223,7 @@ export async function updateMemberRole(
 ) {
   const session = await auth();
   if (!session?.user?.id) throw new Error("Unauthorized");
+  if (!["ADMIN", "MEMBER", "GUEST"].includes(role)) throw new Error("Invalid role");
 
   const callerMembership = await prisma.groupMember.findUnique({
     where: { userId_groupId: { userId: session.user.id, groupId } },
@@ -234,8 +233,19 @@ export async function updateMemberRole(
     throw new Error("Insufficient permissions");
   }
 
-  const updated = await prisma.groupMember.update({
-    where: { id: memberId },
+  // The target MUST belong to this group (previously any member id from any group was accepted)
+  const target = await prisma.groupMember.findFirst({ where: { id: memberId, groupId } });
+  if (!target) throw new Error("Member not found in this group");
+
+  if (target.userId === session.user.id) throw new Error("You cannot change your own role");
+  if (target.role === "OWNER") throw new Error("The owner's role can only change via ownership transfer");
+  // Only the owner may promote to ADMIN or change an existing ADMIN
+  if (callerMembership.role !== "OWNER" && (role === "ADMIN" || target.role === "ADMIN")) {
+    throw new Error("Only the owner can manage admins");
+  }
+
+  await prisma.groupMember.update({
+    where: { id: target.id },
     data: { role },
   });
 
@@ -307,9 +317,19 @@ export async function updateGroupDetails(
     throw new Error("Insufficient permissions: Group OWNER or ADMIN role required");
   }
 
+  // Whitelist fields: server actions receive arbitrary JSON, so never spread client input into Prisma
+  const safeData: { name?: string; description?: string; icon?: string } = {};
+  if (typeof data.name === "string") {
+    const n = data.name.trim();
+    if (!n || n.length > 80) throw new Error("Group name must be 1-80 characters");
+    safeData.name = n;
+  }
+  if (typeof data.description === "string") safeData.description = data.description.slice(0, 500);
+  if (typeof data.icon === "string") safeData.icon = data.icon.slice(0, 16);
+
   await prisma.group.update({
     where: { id },
-    data,
+    data: safeData,
   });
 
   await prisma.auditLog.create({
@@ -318,7 +338,7 @@ export async function updateGroupDetails(
       action: "UPDATE",
       resourceType: "GROUP",
       resourceId: id,
-      changes: data,
+      changes: safeData,
     },
   });
 
@@ -338,8 +358,25 @@ export async function removeMember(groupId: string, memberId: string) {
     throw new Error("Insufficient permissions");
   }
 
-  await prisma.groupMember.delete({
-    where: { id: memberId },
+  const target = await prisma.groupMember.findFirst({ where: { id: memberId, groupId } });
+  if (!target) throw new Error("Member not found in this group");
+
+  if (target.role === "OWNER") throw new Error("The owner cannot be removed");
+  if (target.userId === session.user.id) throw new Error("Use 'Leave group' to remove yourself");
+  if (callerMembership.role !== "OWNER" && target.role === "ADMIN") {
+    throw new Error("Only the owner can remove an admin");
+  }
+
+  await prisma.groupMember.delete({ where: { id: target.id } });
+
+  await prisma.auditLog.create({
+    data: {
+      userId: session.user.id,
+      action: "ROLE_CHANGE",
+      resourceType: "GROUP",
+      resourceId: groupId,
+      changes: { removedMember: target.userId },
+    },
   });
 
   revalidatePath("/settings");
@@ -362,11 +399,37 @@ export async function addMemberByUserId(
     throw new Error("Insufficient permissions");
   }
 
+  if (!["ADMIN", "MEMBER", "GUEST"].includes(role)) throw new Error("Invalid role");
+  if (role === "ADMIN" && callerMembership.role !== "OWNER") {
+    throw new Error("Only the owner can add admins");
+  }
+
+  const targetUser = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { id: true, isActive: true, deletedAt: true },
+  });
+  if (!targetUser || !targetUser.isActive || targetUser.deletedAt) throw new Error("User not found");
+
+  const already = await prisma.groupMember.findUnique({
+    where: { userId_groupId: { userId, groupId } },
+  });
+  if (already) throw new Error("User is already a member");
+
   await prisma.groupMember.create({
     data: {
       userId,
       groupId,
       role,
+    },
+  });
+
+  await prisma.auditLog.create({
+    data: {
+      userId: session.user.id,
+      action: "PERMISSION_CHANGE",
+      resourceType: "GROUP",
+      resourceId: groupId,
+      changes: { addedUser: userId, role },
     },
   });
 

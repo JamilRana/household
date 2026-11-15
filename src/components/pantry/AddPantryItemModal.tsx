@@ -5,12 +5,34 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { addPantryItem } from "@/lib/actions/groceries";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+  DialogTrigger,
+} from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
+import {
+  Form,
+  FormControl,
+  FormField,
+  FormItem,
+  FormLabel,
+  FormMessage,
+} from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Plus } from "lucide-react";
+import { toast } from "sonner";
 
 const formSchema = z.object({
   name: z.string().min(1, "Item name is required"),
@@ -31,15 +53,19 @@ interface AddPantryItemModalProps {
   }[];
 }
 
-export function AddPantryItemModal({ locations = ["Pantry", "Fridge", "Freezer"], categories = [] }: AddPantryItemModalProps) {
+export function AddPantryItemModal({
+  locations = ["Pantry", "Fridge", "Freezer"],
+  categories = [],
+}: AddPantryItemModalProps) {
   const [open, setOpen] = useState(false);
+  const [loading, setLoading] = useState(false);
 
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
     defaultValues: {
       name: "",
       quantity: "1",
-      unit: "piece",
+      unit: "pcs",
       location: locations[0] || "Pantry",
       expiryDate: "",
       categoryId: "none",
@@ -47,6 +73,7 @@ export function AddPantryItemModal({ locations = ["Pantry", "Fridge", "Freezer"]
   });
 
   async function onSubmit(values: z.infer<typeof formSchema>) {
+    setLoading(true);
     try {
       await addPantryItem({
         ...values,
@@ -54,57 +81,71 @@ export function AddPantryItemModal({ locations = ["Pantry", "Fridge", "Freezer"]
         expiryDate: values.expiryDate ? new Date(values.expiryDate) : undefined,
         categoryId: values.categoryId === "none" || !values.categoryId ? null : values.categoryId,
       });
+      toast.success("Item added to inventory");
       setOpen(false);
       form.reset({
         name: "",
         quantity: "1",
-        unit: "piece",
+        unit: "pcs",
         location: locations[0] || "Pantry",
         expiryDate: "",
         categoryId: "none",
       });
-    } catch (error) {
+    } catch (error: any) {
       console.error(error);
+      toast.error(error.message || "Failed to add pantry item");
+    } finally {
+      setLoading(false);
     }
   }
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild>
-        <Button className="bg-amber-600 hover:bg-amber-700 shadow-lg shadow-amber-100 font-bold rounded-full">
-          <Plus className="mr-2 h-4 w-4" /> Add Item
-        </Button>
-      </DialogTrigger>
-      <DialogContent className="sm:max-w-[425px] bg-neutral-50 border-amber-900 rounded-xl">
-        <DialogHeader>
-          <DialogTitle>Add Pantry Item</DialogTitle>
+      <DialogTrigger
+        render={
+          <Button size="sm" className="h-8 sm:h-9 text-xs font-medium gap-1.5 shadow-2xs">
+            <Plus className="size-3.5" />
+            <span>Add Item</span>
+          </Button>
+        }
+      />
+      <DialogContent className="w-full sm:max-w-md p-5 sm:p-6 rounded-xl border border-border bg-card shadow-lg max-h-[90vh] overflow-y-auto">
+        <DialogHeader className="space-y-1 pb-2">
+          <DialogTitle className="text-base sm:text-lg font-semibold tracking-tight text-foreground">
+            Add Pantry Item
+          </DialogTitle>
+          <DialogDescription className="text-xs text-muted-foreground">
+            Track shelf life, stock quantity, and storage zones.
+          </DialogDescription>
         </DialogHeader>
+
         <Form {...form}>
-          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4 pt-4">
+          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4 pt-2">
             <FormField
               control={form.control}
               name="name"
               render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Item Name</FormLabel>
+                <FormItem className="space-y-1.5">
+                  <FormLabel className="text-xs font-medium text-foreground">Item Name</FormLabel>
                   <FormControl>
-                    <Input placeholder="e.g. Pasta, Juice..." {...field} />
+                    <Input placeholder="e.g. Olive Oil, Milk, Pasta..." {...field} className="h-9" />
                   </FormControl>
-                  <FormMessage />
+                  <FormMessage className="text-xs" />
                 </FormItem>
               )}
             />
-            <div className="grid grid-cols-2 gap-4">
+
+            <div className="grid grid-cols-2 gap-3">
               <FormField
                 control={form.control}
                 name="quantity"
                 render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Quantity</FormLabel>
+                  <FormItem className="space-y-1.5">
+                    <FormLabel className="text-xs font-medium text-foreground">Quantity</FormLabel>
                     <FormControl>
-                      <Input type="number" step="0.1" {...field} />
+                      <Input type="number" step="0.1" {...field} className="h-9 font-mono" />
                     </FormControl>
-                    <FormMessage />
+                    <FormMessage className="text-xs" />
                   </FormItem>
                 )}
               />
@@ -112,31 +153,31 @@ export function AddPantryItemModal({ locations = ["Pantry", "Fridge", "Freezer"]
                 control={form.control}
                 name="unit"
                 render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Unit</FormLabel>
+                  <FormItem className="space-y-1.5">
+                    <FormLabel className="text-xs font-medium text-foreground">Unit</FormLabel>
                     <FormControl>
-                      <Input placeholder="pcs, kg, pack..." {...field} />
+                      <Input placeholder="pcs, kg, box..." {...field} className="h-9" />
                     </FormControl>
-                    <FormMessage />
+                    <FormMessage className="text-xs" />
                   </FormItem>
                 )}
               />
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-2 gap-3">
               <FormField
                 control={form.control}
                 name="location"
                 render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Location</FormLabel>
+                  <FormItem className="space-y-1.5">
+                    <FormLabel className="text-xs font-medium text-foreground">Location</FormLabel>
                     <Select onValueChange={field.onChange} value={field.value}>
                       <FormControl>
-                        <SelectTrigger className="bg-neutral-50 rounded-xl">
+                        <SelectTrigger className="h-9">
                           <SelectValue placeholder="Select location" />
                         </SelectTrigger>
                       </FormControl>
-                      <SelectContent className="bg-neutral-50 rounded-xl">
+                      <SelectContent>
                         {locations.map((loc) => (
                           <SelectItem key={loc} value={loc}>
                             {loc}
@@ -144,7 +185,7 @@ export function AddPantryItemModal({ locations = ["Pantry", "Fridge", "Freezer"]
                         ))}
                       </SelectContent>
                     </Select>
-                    <FormMessage />
+                    <FormMessage className="text-xs" />
                   </FormItem>
                 )}
               />
@@ -153,27 +194,32 @@ export function AddPantryItemModal({ locations = ["Pantry", "Fridge", "Freezer"]
                 control={form.control}
                 name="categoryId"
                 render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Category (Optional)</FormLabel>
+                  <FormItem className="space-y-1.5">
+                    <FormLabel className="text-xs font-medium text-foreground">
+                      Category <span className="text-muted-foreground font-normal">(optional)</span>
+                    </FormLabel>
                     <Select onValueChange={field.onChange} value={field.value}>
                       <FormControl>
-                        <SelectTrigger className="bg-neutral-50 rounded-xl">
+                        <SelectTrigger className="h-9">
                           <SelectValue placeholder="Select category" />
                         </SelectTrigger>
                       </FormControl>
-                      <SelectContent className="bg-neutral-50 rounded-xl">
+                      <SelectContent>
                         <SelectItem value="none">None</SelectItem>
                         {categories.map((cat) => (
                           <SelectItem key={cat.id} value={cat.id}>
                             <div className="flex items-center gap-2">
-                              <div className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: cat.color }} />
-                              <span>{cat.name}</span>
+                              <div
+                                className="size-2 rounded-full shrink-0"
+                                style={{ backgroundColor: cat.color }}
+                              />
+                              <span className="truncate">{cat.name}</span>
                             </div>
                           </SelectItem>
                         ))}
                       </SelectContent>
                     </Select>
-                    <FormMessage />
+                    <FormMessage className="text-xs" />
                   </FormItem>
                 )}
               />
@@ -183,18 +229,32 @@ export function AddPantryItemModal({ locations = ["Pantry", "Fridge", "Freezer"]
               control={form.control}
               name="expiryDate"
               render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Expiry Date (Optional)</FormLabel>
+                <FormItem className="space-y-1.5">
+                  <FormLabel className="text-xs font-medium text-foreground">
+                    Expiry Date <span className="text-muted-foreground font-normal">(optional)</span>
+                  </FormLabel>
                   <FormControl>
-                    <Input type="date" {...field} />
+                    <Input type="date" {...field} className="h-9" />
                   </FormControl>
-                  <FormMessage />
+                  <FormMessage className="text-xs" />
                 </FormItem>
               )}
             />
-            <Button type="submit" className="w-full bg-amber-600 hover:bg-amber-700 py-6 text-lg font-bold rounded-xl mt-4">
-              Add to Inventory
-            </Button>
+
+            <DialogFooter className="pt-2">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setOpen(false)}
+                disabled={loading}
+              >
+                Cancel
+              </Button>
+              <Button type="submit" size="sm" disabled={loading}>
+                {loading ? "Adding..." : "Add to Inventory"}
+              </Button>
+            </DialogFooter>
           </form>
         </Form>
       </DialogContent>

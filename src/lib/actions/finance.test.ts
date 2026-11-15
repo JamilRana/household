@@ -1,59 +1,77 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { createTransaction, getBudgets } from "./finance";
-import { processRecurringTransactions } from "@/lib/jobs/recurring-transactions";
+import { createTransaction, deleteCategory, updateCategory } from "./finance";
 import { prisma } from "@/lib/db";
 import { auth } from "@/lib/auth";
 
-describe("Finance Actions", () => {
+describe("Finance actions", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    (auth as any).mockResolvedValue({ user: { id: "user-1" } });
+  });
+
+  const tx = () => ({
+    type: "EXPENSE" as const,
+    amount: 50,
+    currency: "USD",
+    categoryId: "cat-1",
+    date: new Date(),
+    paymentMethod: "CASH" as const,
+    isRecurring: false,
   });
 
   describe("createTransaction", () => {
-    it("should encrypt the amount if encryption is active (mocked as true for this test logic)", async () => {
-      (auth as any).mockResolvedValue({ user: { id: "user-1" } });
-      
-      const txData = {
-        type: "EXPENSE" as const,
-        amount: 50.0,
-        currency: "USD",
-        categoryId: "cat-1",
-        date: new Date(),
-        paymentMethod: "CASH" as const,
-        isRecurring: false,
-      };
+    it("stores the amount, an encrypted copy, and the caller as owner", async () => {
+      (prisma.category.findFirst as any).mockResolvedValue({ id: "cat-1" });
+      await createTransaction(tx());
 
-      await createTransaction(txData);
+      const data = (prisma.transaction.create as any).mock.calls[0][0].data;
+      expect(data.amount).toBe(50);
+      expect(data.userId).toBe("user-1");
+      expect(typeof data.encryptedAmount).toBe("string");
+      expect(data.encryptedAmount.length).toBeGreaterThan(10);
+    });
 
-      expect(prisma.transaction.create).toHaveBeenCalledWith(expect.objectContaining({
-        data: expect.objectContaining({
-          amount: 50.0, // In this implementation, we decided NOT to encrypt amounts for aggregation reasons, or we use decimal. Verify finance.ts.
-          userId: "user-1",
-        })
-      }));
+    it("rejects a category the user cannot see", async () => {
+      (prisma.category.findFirst as any).mockResolvedValue(null);
+      await expect(createTransaction(tx())).rejects.toThrow("Category not found");
+      expect(prisma.transaction.create).not.toHaveBeenCalled();
+    });
+
+    it("rejects invalid amounts", async () => {
+      await expect(createTransaction({ ...tx(), amount: -5 })).rejects.toThrow();
+      await expect(createTransaction({ ...tx(), amount: 5_000_000_000 })).rejects.toThrow();
     });
   });
 
-  describe("processRecurringTransactions", () => {
-    it("should prevent duplicate transactions for the same period", async () => {
-      // Mock recurring transaction
-      const mockRecurring = {
-        id: "rec-1",
-        userId: "user-1",
-        amount: 100,
-        categoryId: "cat-1",
-        recurrencePattern: "MONTHLY",
-        nextOccurrence: new Date(),
-      };
+  describe("category ownership", () => {
+    it("deleteCategory refuses categories the user does not own / system categories", async () => {
+      (prisma.category.findFirst as any).mockResolvedValue(null);
+      await expect(deleteCategory("someone-elses")).rejects.toThrow();
+      expect(prisma.category.findFirst).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { id: "someone-elses", userId: "user-1", isSystem: false } })
+      );
+      expect(prisma.category.delete).not.toHaveBeenCalled();
+    });
 
-      (prisma.transaction.findMany as any).mockResolvedValue([mockRecurring]);
-      // Mock existing transaction check (findFirst)
-      (prisma.transaction.findFirst as any).mockResolvedValue({ id: "existing-1" });
+    it("deleteCategory archives (keeps history) when transactions use it", async () => {
+      (prisma.category.findFirst as any).mockResolvedValue({ id: "c1" });
+      (prisma.transaction.count as any).mockResolvedValue(3);
+      await deleteCategory("c1");
+      expect(prisma.category.update).toHaveBeenCalledWith({ where: { id: "c1" }, data: { isArchived: true } });
+      expect(prisma.category.delete).not.toHaveBeenCalled();
+    });
 
-      await processRecurringTransactions();
+    it("deleteCategory deletes an unused own category", async () => {
+      (prisma.category.findFirst as any).mockResolvedValue({ id: "c1" });
+      (prisma.transaction.count as any).mockResolvedValue(0);
+      await deleteCategory("c1");
+      expect(prisma.category.delete).toHaveBeenCalledWith({ where: { id: "c1" } });
+    });
 
-      // Should NOT create a new transaction if one exists
-      expect(prisma.transaction.create).not.toHaveBeenCalled();
+    it("updateCategory refuses categories the user does not own", async () => {
+      (prisma.category.findFirst as any).mockResolvedValue(null);
+      await expect(updateCategory("x", { name: "Hacked" })).rejects.toThrow();
+      expect(prisma.category.update).not.toHaveBeenCalled();
     });
   });
 });

@@ -67,13 +67,13 @@ export function GroupSelector({ className }: { className?: string }) {
           <div className="flex items-center gap-3">
             <div className="size-8 rounded-lg bg-primary/10 flex items-center justify-center text-primary">
               {activeGroup ? (
-                <span className="text-sm font-black">{activeGroup.name[0].toUpperCase()}</span>
+                <span className="text-sm font-semibold">{activeGroup.name[0].toUpperCase()}</span>
               ) : (
                 <User className="size-4" />
               )}
             </div>
             <div className="flex flex-col items-start gap-0.5">
-              <span className="text-xs font-black text-muted-foreground uppercase tracking-widest">Active Workspace</span>
+              <span className="text-xs font-semibold text-muted-foreground">Active Workspace</span>
               <span className="text-sm font-bold truncate max-w-[120px]">
                 {activeGroup ? activeGroup.name : "Personal Space"}
               </span>
@@ -82,9 +82,9 @@ export function GroupSelector({ className }: { className?: string }) {
           <ChevronDown className="size-4 text-muted-foreground group-hover:text-foreground transition-colors" />
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent className="w-64 p-2 rounded-3xl shadow-2xl border-muted/50" align="start">
+      <DropdownMenuContent className="w-64 p-2 rounded-2xl shadow-md border-muted/50" align="start">
         <DropdownMenuGroup>
-          <DropdownMenuLabel className="px-3 py-2 text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground">
+          <DropdownMenuLabel className="px-3 py-2 text-xs font-semibold text-muted-foreground">
             My Workspaces
           </DropdownMenuLabel>
           
@@ -119,11 +119,11 @@ export function GroupSelector({ className }: { className?: string }) {
             >
               <div className="flex items-center gap-3">
                 <div className="size-8 rounded-lg bg-primary/10 flex items-center justify-center">
-                  <span className="text-sm font-black">{group.name[0].toUpperCase()}</span>
+                  <span className="text-sm font-semibold">{group.name[0].toUpperCase()}</span>
                 </div>
                 <div className="flex flex-col">
                   <span className="font-bold text-sm">{group.name}</span>
-                  <span className="text-[10px] text-muted-foreground font-medium">{group.memberCount} members</span>
+                  <span className="text-xs text-muted-foreground font-medium">{group.memberCount} members</span>
                 </div>
               </div>
               {activeGroupId === group.id && <Check className="size-4" />}

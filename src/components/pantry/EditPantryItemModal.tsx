@@ -5,12 +5,34 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { updatePantryItem } from "@/lib/actions/groceries";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+  DialogTrigger,
+} from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
+import {
+  Form,
+  FormControl,
+  FormField,
+  FormItem,
+  FormLabel,
+  FormMessage,
+} from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Edit2 } from "lucide-react";
+import { toast } from "sonner";
 
 const formSchema = z.object({
   name: z.string().min(1, "Item name is required"),
@@ -29,10 +51,16 @@ interface EditPantryItemModalProps {
     color: string;
     isSystem: boolean;
   }[];
+  trigger?: React.ReactNode;
 }
 
-export function EditPantryItemModal({ item, categories = [] }: EditPantryItemModalProps) {
+export function EditPantryItemModal({
+  item,
+  categories = [],
+  trigger,
+}: EditPantryItemModalProps) {
   const [open, setOpen] = useState(false);
+  const [loading, setLoading] = useState(false);
 
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
@@ -41,12 +69,15 @@ export function EditPantryItemModal({ item, categories = [] }: EditPantryItemMod
       quantity: item.quantity.toString(),
       unit: item.unit,
       location: item.location,
-      expiryDate: item.expiryDate ? new Date(item.expiryDate).toISOString().split("T")[0] : "",
+      expiryDate: item.expiryDate
+        ? new Date(item.expiryDate).toISOString().split("T")[0]
+        : "",
       categoryId: item.categoryId || "none",
     },
   });
 
   async function onSubmit(values: z.infer<typeof formSchema>) {
+    setLoading(true);
     try {
       await updatePantryItem(item.id, {
         ...values,
@@ -54,49 +85,71 @@ export function EditPantryItemModal({ item, categories = [] }: EditPantryItemMod
         expiryDate: values.expiryDate ? new Date(values.expiryDate) : undefined,
         categoryId: values.categoryId === "none" || !values.categoryId ? null : values.categoryId,
       });
+      toast.success("Item updated");
       setOpen(false);
-    } catch (error) {
+    } catch (error: any) {
       console.error(error);
+      toast.error(error.message || "Failed to update item");
+    } finally {
+      setLoading(false);
     }
   }
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild>
-        <Button variant="ghost" size="icon" className="h-8 w-8 text-slate-300 hover:text-blue-500 rounded-lg">
-          <Edit2 className="h-4 w-4" />
-        </Button>
-      </DialogTrigger>
-      <DialogContent className="sm:max-w-[425px]">
-        <DialogHeader>
-          <DialogTitle>Edit Item</DialogTitle>
+      <DialogTrigger
+        render={
+          trigger ? (
+            (trigger as any)
+          ) : (
+            <Button
+              variant="ghost"
+              size="icon-xs"
+              className="size-7 text-muted-foreground hover:text-foreground"
+              aria-label="Edit item"
+            >
+              <Edit2 className="size-3.5" />
+            </Button>
+          )
+        }
+      />
+      <DialogContent className="w-full sm:max-w-md p-5 sm:p-6 rounded-xl border border-border bg-card shadow-lg max-h-[90vh] overflow-y-auto">
+        <DialogHeader className="space-y-1 pb-2">
+          <DialogTitle className="text-base sm:text-lg font-semibold tracking-tight text-foreground">
+            Edit Item
+          </DialogTitle>
+          <DialogDescription className="text-xs text-muted-foreground">
+            Update quantity, storage location, or expiry dates.
+          </DialogDescription>
         </DialogHeader>
+
         <Form {...form}>
-          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4 pt-4">
+          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4 pt-2">
             <FormField
               control={form.control}
               name="name"
               render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Item Name</FormLabel>
+                <FormItem className="space-y-1.5">
+                  <FormLabel className="text-xs font-medium text-foreground">Item Name</FormLabel>
                   <FormControl>
-                    <Input placeholder="e.g. Pasta, Juice..." {...field} />
+                    <Input placeholder="Item name" {...field} className="h-9" />
                   </FormControl>
-                  <FormMessage />
+                  <FormMessage className="text-xs" />
                 </FormItem>
               )}
             />
-            <div className="grid grid-cols-2 gap-4">
+
+            <div className="grid grid-cols-2 gap-3">
               <FormField
                 control={form.control}
                 name="quantity"
                 render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Quantity</FormLabel>
+                  <FormItem className="space-y-1.5">
+                    <FormLabel className="text-xs font-medium text-foreground">Quantity</FormLabel>
                     <FormControl>
-                      <Input type="number" step="0.1" {...field} />
+                      <Input type="number" step="0.1" {...field} className="h-9 font-mono" />
                     </FormControl>
-                    <FormMessage />
+                    <FormMessage className="text-xs" />
                   </FormItem>
                 )}
               />
@@ -104,82 +157,106 @@ export function EditPantryItemModal({ item, categories = [] }: EditPantryItemMod
                 control={form.control}
                 name="unit"
                 render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Unit</FormLabel>
+                  <FormItem className="space-y-1.5">
+                    <FormLabel className="text-xs font-medium text-foreground">Unit</FormLabel>
                     <FormControl>
-                      <Input placeholder="pcs, kg, pack..." {...field} />
+                      <Input placeholder="pcs, kg..." {...field} className="h-9" />
                     </FormControl>
-                    <FormMessage />
+                    <FormMessage className="text-xs" />
                   </FormItem>
                 )}
               />
             </div>
-            <FormField
-              control={form.control}
-              name="location"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Location</FormLabel>
-                  <Select onValueChange={field.onChange} value={field.value}>
-                    <FormControl>
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select location" />
-                      </SelectTrigger>
-                    </FormControl>
-                    <SelectContent>
-                      <SelectItem value="Pantry">Pantry</SelectItem>
-                      <SelectItem value="Fridge">Fridge</SelectItem>
-                      <SelectItem value="Freezer">Freezer</SelectItem>
-                    </SelectContent>
-                  </Select>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-            <FormField
-              control={form.control}
-              name="categoryId"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Category (Optional)</FormLabel>
-                  <Select onValueChange={field.onChange} value={field.value}>
-                    <FormControl>
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select category" />
-                      </SelectTrigger>
-                    </FormControl>
-                    <SelectContent>
-                      <SelectItem value="none">None</SelectItem>
-                      {categories.map((cat) => (
-                        <SelectItem key={cat.id} value={cat.id}>
-                          <div className="flex items-center gap-2">
-                            <div className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: cat.color }} />
-                            <span>{cat.name}</span>
-                          </div>
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
+
+            <div className="grid grid-cols-2 gap-3">
+              <FormField
+                control={form.control}
+                name="location"
+                render={({ field }) => (
+                  <FormItem className="space-y-1.5">
+                    <FormLabel className="text-xs font-medium text-foreground">Location</FormLabel>
+                    <Select onValueChange={field.onChange} value={field.value}>
+                      <FormControl>
+                        <SelectTrigger className="h-9">
+                          <SelectValue placeholder="Select location" />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        {["Pantry", "Fridge", "Freezer"].map((loc) => (
+                          <SelectItem key={loc} value={loc}>
+                            {loc}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <FormMessage className="text-xs" />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name="categoryId"
+                render={({ field }) => (
+                  <FormItem className="space-y-1.5">
+                    <FormLabel className="text-xs font-medium text-foreground">Category</FormLabel>
+                    <Select onValueChange={field.onChange} value={field.value}>
+                      <FormControl>
+                        <SelectTrigger className="h-9">
+                          <SelectValue placeholder="Select category" />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        <SelectItem value="none">None</SelectItem>
+                        {categories.map((cat) => (
+                          <SelectItem key={cat.id} value={cat.id}>
+                            <div className="flex items-center gap-2">
+                              <div
+                                className="size-2 rounded-full shrink-0"
+                                style={{ backgroundColor: cat.color }}
+                              />
+                              <span className="truncate">{cat.name}</span>
+                            </div>
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <FormMessage className="text-xs" />
+                  </FormItem>
+                )}
+              />
+            </div>
+
             <FormField
               control={form.control}
               name="expiryDate"
               render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Expiry Date (Optional)</FormLabel>
+                <FormItem className="space-y-1.5">
+                  <FormLabel className="text-xs font-medium text-foreground">
+                    Expiry Date <span className="text-muted-foreground font-normal">(optional)</span>
+                  </FormLabel>
                   <FormControl>
-                    <Input type="date" {...field} />
+                    <Input type="date" {...field} className="h-9" />
                   </FormControl>
-                  <FormMessage />
+                  <FormMessage className="text-xs" />
                 </FormItem>
               )}
             />
-            <Button type="submit" className="w-full bg-blue-600 hover:bg-blue-700 py-6 text-lg font-bold">
-              Save Changes
-            </Button>
+
+            <DialogFooter className="pt-2">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setOpen(false)}
+                disabled={loading}
+              >
+                Cancel
+              </Button>
+              <Button type="submit" size="sm" disabled={loading}>
+                {loading ? "Saving..." : "Save Changes"}
+              </Button>
+            </DialogFooter>
           </form>
         </Form>
       </DialogContent>

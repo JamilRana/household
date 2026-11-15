@@ -1,3 +1,4 @@
+import { redirect } from "next/navigation";
 import { auth } from "@/lib/auth";
 import { getActiveGroupId } from "@/lib/actions/user";
 import { GrocerySidebar } from "@/components/groceries/grocery-sidebar";
@@ -12,7 +13,7 @@ export default async function GroceriesLayout({
   children: React.ReactNode;
 }) {
   const session = await auth();
-  if (!session?.user?.id) return null;
+  if (!session?.user?.id) redirect("/login");
 
   const groupId = await getActiveGroupId(session.user.id);
   const lists = await getGroceryLists(groupId);
@@ -27,10 +28,10 @@ export default async function GroceriesLayout({
       <div className="flex-1 min-w-0 flex flex-col">
         {/* Mobile Header with Sidebar Trigger */}
         <div className="lg:hidden px-6 py-4 flex items-center justify-between border-b bg-white dark:bg-slate-950 shrink-0">
-          <h2 className="font-black tracking-tighter text-xl">Groceries</h2>
+          <h2 className="font-semibold tracking-tight text-xl">Groceries</h2>
           <Sheet>
             <SheetTrigger asChild>
-              <Button variant="ghost" size="icon" className="rounded-xl">
+              <Button variant="ghost" size="icon" className="rounded-xl" aria-label="Menu">
                 <Menu className="size-5" />
               </Button>
             </SheetTrigger>

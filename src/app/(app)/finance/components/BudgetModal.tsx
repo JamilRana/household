@@ -6,12 +6,34 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { BudgetPeriod } from "@prisma/client";
 import { createBudget } from "@/lib/actions/finance";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+  DialogTrigger,
+} from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
+import {
+  Form,
+  FormControl,
+  FormField,
+  FormItem,
+  FormLabel,
+  FormMessage,
+} from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { PlusCircle } from "lucide-react";
+import { toast } from "sonner";
 
 const formSchema = z.object({
   categoryId: z.string().min(1, "Category is required"),
@@ -22,6 +44,7 @@ const formSchema = z.object({
 
 export function BudgetModal({ categories }: { categories: any[] }) {
   const [open, setOpen] = useState(false);
+  const [loading, setLoading] = useState(false);
 
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
@@ -34,16 +57,26 @@ export function BudgetModal({ categories }: { categories: any[] }) {
   });
 
   async function onSubmit(values: z.infer<typeof formSchema>) {
+    setLoading(true);
     try {
       await createBudget({
         ...values,
         amount: parseFloat(values.amount),
         startDate: new Date(values.startDate),
       });
+      toast.success("Budget created");
       setOpen(false);
-      form.reset();
-    } catch (error) {
+      form.reset({
+        period: BudgetPeriod.MONTHLY,
+        startDate: new Date().toISOString().split("T")[0],
+        amount: "",
+        categoryId: "",
+      });
+    } catch (error: any) {
       console.error(error);
+      toast.error(error.message || "Failed to create budget");
+    } finally {
+      setLoading(false);
     }
   }
 
@@ -51,26 +84,33 @@ export function BudgetModal({ categories }: { categories: any[] }) {
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger
         render={
-          <Button variant="outline" className="w-full border-dashed border-2 py-8 rounded-3xl hover:bg-slate-50 dark:hover:bg-slate-800 transition-all text-slate-400 hover:text-blue-600 font-bold">
-            <PlusCircle className="mr-2 h-5 w-5" /> Set New Budget
+          <Button variant="outline" size="sm" className="h-8 sm:h-9 text-xs font-medium gap-1.5 shadow-2xs">
+            <PlusCircle className="size-3.5 text-muted-foreground" />
+            <span>Set Budget</span>
           </Button>
         }
       />
-      <DialogContent className="sm:max-w-[425px] bg-white dark:bg-slate-900 border-none shadow-2xl">
-        <DialogHeader>
-          <DialogTitle className="text-2xl font-bold">Set Budget</DialogTitle>
+      <DialogContent className="w-full sm:max-w-md p-5 sm:p-6 rounded-xl border border-border bg-card shadow-lg max-h-[90vh] overflow-y-auto">
+        <DialogHeader className="space-y-1 pb-2">
+          <DialogTitle className="text-base sm:text-lg font-semibold tracking-tight text-foreground">
+            Set New Budget
+          </DialogTitle>
+          <DialogDescription className="text-xs text-muted-foreground">
+            Establish a spending limit for a specific category and cadence.
+          </DialogDescription>
         </DialogHeader>
+
         <Form {...form}>
-          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4 pt-4">
+          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4 pt-2">
             <FormField
               control={form.control}
               name="categoryId"
               render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Category</FormLabel>
+                <FormItem className="space-y-1.5">
+                  <FormLabel className="text-xs font-medium text-foreground">Category</FormLabel>
                   <Select onValueChange={field.onChange} value={field.value}>
                     <FormControl>
-                      <SelectTrigger className="bg-slate-50 dark:bg-slate-800 border-none">
+                      <SelectTrigger className="h-9">
                         <SelectValue placeholder="Select category" />
                       </SelectTrigger>
                     </FormControl>
@@ -78,40 +118,51 @@ export function BudgetModal({ categories }: { categories: any[] }) {
                       {categories.map((cat) => (
                         <SelectItem key={cat.id} value={cat.id}>
                           <div className="flex items-center gap-2">
-                            <div className="h-2 w-2 rounded-full" style={{ backgroundColor: cat.color }} />
-                            {cat.name}
+                            <div
+                              className="size-2 rounded-full shrink-0"
+                              style={{ backgroundColor: cat.color }}
+                            />
+                            <span className="truncate">{cat.name}</span>
                           </div>
                         </SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
-                  <FormMessage />
+                  <FormMessage className="text-xs" />
                 </FormItem>
               )}
             />
-            <div className="grid grid-cols-2 gap-4">
+
+            <div className="grid grid-cols-2 gap-3">
               <FormField
                 control={form.control}
                 name="amount"
                 render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Budget Amount</FormLabel>
+                  <FormItem className="space-y-1.5">
+                    <FormLabel className="text-xs font-medium text-foreground">Budget Amount</FormLabel>
                     <FormControl>
-                      <Input type="number" step="0.01" placeholder="0.00" {...field} className="bg-slate-50 dark:bg-slate-800 border-none" />
+                      <Input
+                        type="number"
+                        step="0.01"
+                        placeholder="0.00"
+                        {...field}
+                        className="h-9 font-mono"
+                      />
                     </FormControl>
-                    <FormMessage />
+                    <FormMessage className="text-xs" />
                   </FormItem>
                 )}
               />
+
               <FormField
                 control={form.control}
                 name="period"
                 render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Period</FormLabel>
+                  <FormItem className="space-y-1.5">
+                    <FormLabel className="text-xs font-medium text-foreground">Period</FormLabel>
                     <Select onValueChange={field.onChange} value={field.value}>
                       <FormControl>
-                        <SelectTrigger className="bg-slate-50 dark:bg-slate-800 border-none">
+                        <SelectTrigger className="h-9">
                           <SelectValue placeholder="Select period" />
                         </SelectTrigger>
                       </FormControl>
@@ -121,27 +172,40 @@ export function BudgetModal({ categories }: { categories: any[] }) {
                         <SelectItem value={BudgetPeriod.YEARLY}>Yearly</SelectItem>
                       </SelectContent>
                     </Select>
-                    <FormMessage />
+                    <FormMessage className="text-xs" />
                   </FormItem>
                 )}
               />
             </div>
+
             <FormField
               control={form.control}
               name="startDate"
               render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Start Date</FormLabel>
+                <FormItem className="space-y-1.5">
+                  <FormLabel className="text-xs font-medium text-foreground">Start Date</FormLabel>
                   <FormControl>
-                    <Input type="date" {...field} className="bg-slate-50 dark:bg-slate-800 border-none" />
+                    <Input type="date" {...field} className="h-9" />
                   </FormControl>
-                  <FormMessage />
+                  <FormMessage className="text-xs" />
                 </FormItem>
               )}
             />
-            <Button type="submit" className="w-full bg-blue-600 hover:bg-blue-700 py-6 text-lg font-bold">
-              Create Budget
-            </Button>
+
+            <DialogFooter className="pt-2">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setOpen(false)}
+                disabled={loading}
+              >
+                Cancel
+              </Button>
+              <Button type="submit" size="sm" disabled={loading}>
+                {loading ? "Creating..." : "Create Budget"}
+              </Button>
+            </DialogFooter>
           </form>
         </Form>
       </DialogContent>
