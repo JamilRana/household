@@ -1,3 +1,4 @@
+import { redirect } from "next/navigation";
 import { GalleyTopbar } from "@/components/galley-topbar";
 import { GalleyBottombar } from "@/components/galley-bottombar";
 import { QuickAdd } from "@/components/quick-add";
@@ -10,6 +11,9 @@ export default async function AppLayout({
   children: React.ReactNode;
 }) {
   const session = await auth();
+  if (!session?.user?.id) {
+    redirect("/login");
+  }
   const isAdmin = isAdminRole((session?.user as { role?: string } | undefined)?.role);
 
   return (

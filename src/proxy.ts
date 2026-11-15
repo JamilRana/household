@@ -17,19 +17,17 @@ export default auth((req) => {
   // Allow API auth routes, cron endpoints, and health checks
   if (isApiAuthRoute || isCronRoute || isHealthRoute || isRecoveryRoute) return;
 
-  // Root path: authenticated -> dashboard, unauthenticated -> login
+  // Let root path pass through to src/app/page.tsx for database-verified session check
   if (nextUrl.pathname === "/") {
-    if (isLoggedIn) {
-      return Response.redirect(new URL("/dashboard", nextUrl));
-    }
-    return Response.redirect(new URL("/login", nextUrl));
+    return;
   }
 
-  // Already logged in users accessing login/register should go to dashboard
+  // Auth routes (/login, /register):
+  // Do NOT redirect to /dashboard from edge middleware. Edge checks only verify
+  // cookie signature without database user verification. AuthLayout safely
+  // handles redirecting verified DB users to /dashboard, preventing infinite
+  // redirect loops when stale or revoked cookies exist in the browser.
   if (isAuthRoute) {
-    if (isLoggedIn) {
-      return Response.redirect(new URL("/dashboard", nextUrl));
-    }
     return;
   }
 
