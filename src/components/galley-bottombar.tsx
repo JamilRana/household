@@ -46,7 +46,6 @@ export function GalleyBottombar({ isAdmin = false }: GalleyBottombarProps) {
   ];
 
   const moreTabs = [
-    { label: "Pantry", href: "/pantry", icon: Package },
     { label: "Groups", href: "/teams", icon: Users },
     { label: "Settings", href: "/settings", icon: Settings },
     ...(isAdmin ? [{ label: "Admin Console", href: "/admin/users", icon: Shield }] : []),

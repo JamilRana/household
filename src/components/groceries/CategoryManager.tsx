@@ -109,7 +109,7 @@ export function CategoryManager({ categories: passedCategories, initialCategorie
             Manage Grocery Categories
           </DialogTitle>
           <DialogDescription className="text-xs text-muted-foreground">
-            Group pantry and grocery items by section.
+            Group grocery items by section.
           </DialogDescription>
         </DialogHeader>
 

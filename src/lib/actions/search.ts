@@ -7,15 +7,15 @@ import { getActiveGroupId } from "@/lib/actions/user";
 
 export async function globalSearch(query: string) {
   const session = await auth();
-  if (!session?.user?.id) return { tasks: [], groceries: [], pantry: [], transactions: [] };
+  if (!session?.user?.id) return { tasks: [], groceries: [], transactions: [] };
 
   if (!query || query.length < 2) {
-    return { tasks: [], groceries: [], pantry: [], transactions: [] };
+    return { tasks: [], groceries: [], transactions: [] };
   }
 
   const groupId = await getActiveGroupId();
 
-  const [tasks, groceries, pantry, transactions] = await Promise.all([
+  const [tasks, groceries, transactions] = await Promise.all([
     // Search Tasks
     prisma.task.findMany({
       where: {
@@ -46,18 +46,6 @@ export async function globalSearch(query: string) {
       include: { list: true },
     }),
 
-    // Search Pantry
-    prisma.pantryItem.findMany({
-      where: {
-        name: { contains: query, mode: "insensitive" },
-        OR: [
-          { userId: session.user.id },
-          { groupId: groupId ?? NO_GROUP },
-        ],
-      },
-      take: 5,
-    }),
-
     // Search Transactions (Decryption happens client-side or we skip amount search)
     prisma.transaction.findMany({
       where: {
@@ -79,10 +67,6 @@ export async function globalSearch(query: string) {
       quantity: Number(item.quantity),
       estimatedPrice: item.estimatedPrice ? Number(item.estimatedPrice) : null,
       actualPrice: item.actualPrice ? Number(item.actualPrice) : null,
-    })),
-    pantry: pantry.map(item => ({
-      ...item,
-      quantity: Number(item.quantity),
     })),
     transactions: transactions.map(t => ({
       ...t,

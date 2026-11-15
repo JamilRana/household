@@ -10,7 +10,7 @@ const inter = Inter({
 
 export const metadata: Metadata = {
   title: { default: "LifeHub", template: "%s · LifeHub" },
-  description: "Tasks, groceries, pantry and money for your household, in one place.",
+  description: "Tasks, groceries, and money for your household, in one place.",
   applicationName: "LifeHub",
 };
 

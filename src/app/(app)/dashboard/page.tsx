@@ -20,14 +20,6 @@ function dueLabel(date: Date, now: Date) {
   return format(date, "d MMM");
 }
 
-function expiryLabel(date: Date, now: Date) {
-  const days = differenceInCalendarDays(date, now);
-  if (days < 0) return days === -1 ? "Expired yesterday" : `Expired ${-days}d ago`;
-  if (days === 0) return "Expires today";
-  if (days === 1) return "Expires tomorrow";
-  return `Expires in ${days}d`;
-}
-
 export default async function TodayPage() {
   const session = await auth();
   if (!session?.user?.id) redirect("/login");
@@ -41,12 +33,11 @@ export default async function TodayPage() {
   const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
   const startOfLastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
   const sameDayLastMonth = new Date(now.getFullYear(), now.getMonth() - 1, Math.min(now.getDate(), 28), 23, 59, 59);
-  const soon = new Date(now.getTime() + 3 * 24 * 60 * 60 * 1000);
 
   const mineOrGroup = { OR: [{ userId }, { groupId: g }] };
   const listAccess = { OR: [{ ownerId: userId }, { groupId: g }] };
 
-  const [dueTasks, dueTaskCount, expiring, groceryCount, groceryItems, spentNow, spentThen, recent] = await Promise.all([
+  const [dueTasks, dueTaskCount, groceryCount, groceryItems, spentNow, spentThen, recent] = await Promise.all([
     prisma.task.findMany({
       where: {
         status: { notIn: ["COMPLETED", "CANCELLED"] },
@@ -63,11 +54,6 @@ export default async function TodayPage() {
         dueDate: { lte: endOfToday },
         OR: [{ createdBy: userId }, { assignments: { some: { userId } } }, { list: { groupId: g } }],
       },
-    }),
-    prisma.pantryItem.findMany({
-      where: { ...mineOrGroup, expiryDate: { not: null, lte: soon } },
-      orderBy: { expiryDate: "asc" },
-      take: 5,
     }),
     prisma.groceryItem.count({ where: { status: "PENDING", list: { ...listAccess, isArchived: false } } }),
     prisma.groceryItem.findMany({
@@ -139,9 +125,9 @@ export default async function TodayPage() {
         </div>
 
         <div>
-          <span className="stat-label">USE SOON</span>
-          <b className="stat-val">{expiring.length}</b>
-          <small className="stat-sub">Pantry items near expiry</small>
+          <span className="stat-label">RECENT ACTIVITY</span>
+          <b className="stat-val">{recent.length}</b>
+          <small className="stat-sub">Ledger transactions</small>
         </div>
 
         <div>
@@ -232,44 +218,50 @@ export default async function TodayPage() {
             )}
           </section>
 
-          {/* Pantry Expiry Card */}
+          {/* Quick Shortcuts Card */}
           <section className="galley-card space-y-3.5">
-            <div className="flex items-center justify-between gap-2 border-b border-rule pb-3">
-              <div>
-                <h2 className="text-base font-bold text-foreground">Pantry alerts</h2>
-                <p className="text-xs text-muted-foreground">Items nearing expiry</p>
-              </div>
+            <div className="border-b border-rule pb-3">
+              <h2 className="text-base font-bold text-foreground">Quick access</h2>
+              <p className="text-xs text-muted-foreground">Fast navigation & actions</p>
+            </div>
+            <div className="grid grid-cols-2 gap-2 text-xs">
               <Link
-                href="/pantry"
-                className="text-xs font-semibold text-primary hover:underline inline-flex items-center gap-1"
+                href="/tasks"
+                className="p-3 rounded-xl border border-rule bg-card/60 hover:bg-muted/50 transition-colors flex flex-col gap-1"
               >
-                Pantry <ArrowRight className="size-3" />
+                <span className="font-semibold text-foreground flex items-center justify-between">
+                  Tasks <ArrowRight className="size-3 text-muted-foreground" />
+                </span>
+                <span className="text-[11px] text-muted-foreground">{dueTaskCount} pending</span>
+              </Link>
+              <Link
+                href="/groceries"
+                className="p-3 rounded-xl border border-rule bg-card/60 hover:bg-muted/50 transition-colors flex flex-col gap-1"
+              >
+                <span className="font-semibold text-foreground flex items-center justify-between">
+                  Groceries <ArrowRight className="size-3 text-muted-foreground" />
+                </span>
+                <span className="text-[11px] text-muted-foreground">{groceryCount} to buy</span>
+              </Link>
+              <Link
+                href="/finance"
+                className="p-3 rounded-xl border border-rule bg-card/60 hover:bg-muted/50 transition-colors flex flex-col gap-1"
+              >
+                <span className="font-semibold text-foreground flex items-center justify-between">
+                  Finance <ArrowRight className="size-3 text-muted-foreground" />
+                </span>
+                <span className="text-[11px] text-muted-foreground">{formatMoney(spent, undefined, { cents: false })} spent</span>
+              </Link>
+              <Link
+                href="/teams"
+                className="p-3 rounded-xl border border-rule bg-card/60 hover:bg-muted/50 transition-colors flex flex-col gap-1"
+              >
+                <span className="font-semibold text-foreground flex items-center justify-between">
+                  Groups <ArrowRight className="size-3 text-muted-foreground" />
+                </span>
+                <span className="text-[11px] text-muted-foreground">Manage members</span>
               </Link>
             </div>
-
-            {expiring.length === 0 ? (
-              <p className="text-xs text-muted-foreground py-2">Nothing in the pantry is expiring soon.</p>
-            ) : (
-              <ul className="rounded-xl border border-rule bg-card/60 divide-y divide-rule overflow-hidden">
-                {expiring.map((p) => (
-                  <li
-                    key={p.id}
-                    className="flex items-center justify-between gap-3 px-3.5 py-2.5 text-xs"
-                  >
-                    <span className="truncate font-medium text-foreground">{p.name}</span>
-                    <span
-                      className={
-                        p.expiryDate && differenceInCalendarDays(p.expiryDate, now) < 0
-                          ? "text-[11px] text-destructive shrink-0 font-semibold"
-                          : "text-[11px] text-amber-600 dark:text-amber-400 shrink-0 font-medium"
-                      }
-                    >
-                      {p.expiryDate ? expiryLabel(p.expiryDate, now) : ""}
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            )}
           </section>
         </div>
       </div>

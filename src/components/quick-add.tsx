@@ -25,11 +25,10 @@ import { getTaskLists, createTask } from "@/lib/actions/tasks";
 import {
   getGroceryLists,
   addGroceryItem,
-  addPantryItem,
 } from "@/lib/actions/groceries";
 import { getCategories, createTransaction } from "@/lib/actions/finance";
 
-type Kind = "task" | "grocery" | "pantry" | "expense" | "income";
+type Kind = "task" | "grocery" | "expense" | "income";
 
 interface Option {
   id: string;
@@ -43,13 +42,6 @@ const kinds: { id: Kind; label: string; icon: any }[] = [
   { id: "income", label: "Income", icon: TrendingUp },
   { id: "task", label: "Task", icon: ListTodo },
   { id: "grocery", label: "Grocery", icon: ShoppingCart },
-  { id: "pantry", label: "Pantry", icon: Package },
-];
-
-const pantryLocations = [
-  { id: "Pantry", name: "Pantry" },
-  { id: "Fridge", name: "Fridge" },
-  { id: "Freezer", name: "Freezer" },
 ];
 
 const selectClasses =
@@ -149,8 +141,6 @@ export function QuickAdd() {
       ? taskLists
       : kind === "grocery"
       ? groceryLists
-      : kind === "pantry"
-      ? pantryLocations
       : kind === "income"
       ? incomeCategories
       : expenseCategories;
@@ -199,7 +189,7 @@ export function QuickAdd() {
         toast.error(`Create a ${kind} category first in Finance`);
         return;
       }
-    } else if (kind !== "pantry" && !targetId) {
+    } else if (!targetId) {
       toast.error("Select or create a target list first");
       return;
     }
@@ -236,14 +226,6 @@ export function QuickAdd() {
           unit: "pcs",
         } as any);
         toast.success(`Added to grocery list: ${label}`);
-      } else if (kind === "pantry") {
-        await addPantryItem({
-          name: label,
-          quantity: 1,
-          unit: "pcs",
-          location: targetId || "Pantry",
-        } as any);
-        toast.success(`Added to ${targetId || "Pantry"}: ${label}`);
       }
 
       try {
@@ -351,7 +333,7 @@ export function QuickAdd() {
               <label className="text-xs font-medium text-foreground">
                 {kind === "task"
                   ? "Task Title"
-                  : kind === "grocery" || kind === "pantry"
+                  : kind === "grocery"
                   ? "Item Name"
                   : "Note / Description (Optional)"}
               </label>
@@ -361,8 +343,6 @@ export function QuickAdd() {
                     ? "What needs doing?"
                     : kind === "grocery"
                     ? "e.g. Milk, Eggs, Bread..."
-                    : kind === "pantry"
-                    ? "e.g. Olive Oil, Rice, Pasta..."
                     : kind === "income"
                     ? "Salary, Freelance client, Dividend..."
                     : "Coffee, Groceries, Dinner..."
@@ -383,8 +363,6 @@ export function QuickAdd() {
                     ? "Task List"
                     : kind === "grocery"
                     ? "Grocery List"
-                    : kind === "pantry"
-                    ? "Storage Zone"
                     : `${kind === "income" ? "Income" : "Expense"} Category`}
                 </span>
                 <select
@@ -425,8 +403,6 @@ export function QuickAdd() {
                       ? "Balance ledger"
                       : kind === "income"
                       ? "Revenue inflow"
-                      : kind === "pantry"
-                      ? "Shelf storage"
                       : "Shopping list"}
                   </div>
                 </div>
@@ -449,7 +425,7 @@ export function QuickAdd() {
                 disabled={
                   saving ||
                   ((kind === "expense" || kind === "income") && !amount) ||
-                  ((kind === "task" || kind === "grocery" || kind === "pantry") &&
+                  ((kind === "task" || kind === "grocery") &&
                     !text.trim())
                 }
               >

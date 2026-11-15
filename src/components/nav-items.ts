@@ -22,15 +22,14 @@ export const allNavItems: NavItem[] = [
   { label: "Today", href: "/dashboard", icon: CalendarCheck },
   { label: "Tasks", href: "/tasks", icon: ListTodo },
   { label: "Groceries", href: "/groceries", icon: ShoppingCart },
-  { label: "Pantry", href: "/pantry", icon: Package },
   { label: "Money", href: "/finance", icon: Banknote },
   { label: "Groups", href: "/teams", icon: Users },
   { label: "Settings", href: "/settings", icon: Settings },
   { label: "Admin", href: "/admin/users", icon: Shield, adminOnly: true },
 ];
 
-/** The four places you open every day. The rest live under "More" on phones. */
-export const primaryMobileHrefs = ["/dashboard", "/tasks", "/groceries", "/pantry"];
+/** The primary places you open every day. The rest live under "More" on phones. */
+export const primaryMobileHrefs = ["/dashboard", "/tasks", "/groceries"];
 
 export function isAdminRole(role?: string | null) {
   return role === "ADMIN" || role === "SUPERADMIN";

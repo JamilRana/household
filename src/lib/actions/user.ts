@@ -97,7 +97,7 @@ export async function getUserProfile() {
           tasks: true,
           groceryItems: true,
           transactions: true,
-          pantryItems: true,
+          memberships: true,
         },
       },
     },

@@ -97,9 +97,6 @@ export function GalleyTopbar({ isAdmin = false, user }: GalleyTopbarProps) {
         } else if (e.key === "e" || e.key === "E") {
           e.preventDefault();
           window.dispatchEvent(new CustomEvent("lifehub:quick-add", { detail: { kind: "expense" } }));
-        } else if (e.key === "p" || e.key === "P") {
-          e.preventDefault();
-          window.dispatchEvent(new CustomEvent("lifehub:quick-add", { detail: { kind: "pantry" } }));
         }
       }
     };
@@ -166,7 +163,6 @@ export function GalleyTopbar({ isAdmin = false, user }: GalleyTopbarProps) {
     { label: "Overview", href: "/dashboard" },
     { label: "Tasks", href: "/tasks", count: counts.tasks },
     { label: "Groceries", href: "/groceries", count: counts.groceries },
-    { label: "Pantry", href: "/pantry" },
     { label: "Finance", href: "/finance" },
     { label: "Groups", href: "/teams" },
     { label: "Settings", href: "/settings" },
@@ -285,16 +281,6 @@ export function GalleyTopbar({ isAdmin = false, user }: GalleyTopbarProps) {
                 <TrendingDown className="size-4 text-primary" />
                 <span className="flex-1 font-medium">Expense</span>
                 <kbd className="text-[10px] font-mono text-muted-foreground">E</kbd>
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                onClick={() =>
-                  window.dispatchEvent(new CustomEvent("lifehub:quick-add", { detail: { kind: "pantry" } }))
-                }
-                className="gap-2.5 py-2 cursor-pointer rounded-lg"
-              >
-                <Package className="size-4 text-primary" />
-                <span className="flex-1 font-medium">Pantry item</span>
-                <kbd className="text-[10px] font-mono text-muted-foreground">P</kbd>
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
@@ -445,7 +431,7 @@ export function GalleyTopbar({ isAdmin = false, user }: GalleyTopbarProps) {
             <Input
               ref={searchInputRef}
               type="search"
-              placeholder="Search tasks, groceries, expenses, pantry..."
+              placeholder="Search tasks, groceries, expenses..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className="border-0 shadow-none focus-visible:ring-0 text-sm h-9 bg-transparent"
@@ -462,7 +448,6 @@ export function GalleyTopbar({ isAdmin = false, user }: GalleyTopbarProps) {
                   <span className="px-2 py-0.5 rounded-full bg-secondary border border-rule">Tasks</span>
                   <span className="px-2 py-0.5 rounded-full bg-secondary border border-rule">Groceries</span>
                   <span className="px-2 py-0.5 rounded-full bg-secondary border border-rule">Expenses</span>
-                  <span className="px-2 py-0.5 rounded-full bg-secondary border border-rule">Pantry</span>
                 </div>
               </div>
             ) : searchResults && Object.values(searchResults).every((arr: any) => !arr || arr.length === 0) ? (

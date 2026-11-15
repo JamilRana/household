@@ -8,9 +8,7 @@ import { ProfileForm } from "./components/ProfileForm";
 import { PasswordForm } from "./components/PasswordForm";
 import { DeleteAccountButton } from "./components/DeleteAccountButton";
 import { CategorySettings } from "./components/CategorySettings";
-import { PantryCategorySettings } from "./components/PantryCategorySettings";
 import { getCategories } from "@/lib/actions/finance";
-import { getPantryCategories } from "@/lib/actions/groceries";
 
 export const metadata = { title: "Settings" };
 
@@ -20,7 +18,6 @@ export default async function SettingsPage() {
 
   const profile = await getUserProfile();
   const categories = await getCategories();
-  const pantryCategories = await getPantryCategories();
 
   if (!profile) return null;
 
@@ -83,9 +80,9 @@ export default async function SettingsPage() {
         </div>
 
         <div>
-          <span className="stat-label">PANTRY STOCKED</span>
-          <b className="stat-val text-sky-500">{profile._count.pantryItems}</b>
-          <small className="stat-sub">Inventoried goods</small>
+          <span className="stat-label">GROUPS JOINED</span>
+          <b className="stat-val text-sky-500">{profile._count.memberships}</b>
+          <small className="stat-sub">Active household spaces</small>
         </div>
       </div>
 
@@ -112,14 +109,9 @@ export default async function SettingsPage() {
         </div>
       </div>
 
-      {/* Category Management Grid */}
-      <div className="grid gap-6 lg:grid-cols-2">
-        <div className="galley-card">
-          <CategorySettings initialCategories={categories} />
-        </div>
-        <div className="galley-card">
-          <PantryCategorySettings initialCategories={pantryCategories} />
-        </div>
+      {/* Category Management */}
+      <div className="galley-card">
+        <CategorySettings initialCategories={categories} />
       </div>
 
       {/* Danger Zone */}
